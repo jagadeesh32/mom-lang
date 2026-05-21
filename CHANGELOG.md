@@ -7,6 +7,58 @@ ships.
 
 ## [Unreleased]
 
+### Stage-1.2 mom-in-mom compiler widening
+
+- **String type** in stage-1: string literals, `String`/`Str` type name,
+  `+` concatenation between two strings (lowered to `mom_strcat_alloc`),
+  `len(s)` (lowered to `mom_str_len_raw`), `str(int)` /`str(bool)`
+  conversions (`mom_str_from_int` / `mom_str_from_bool`), and `println(s)`
+  (lowered to `mom_print_str`). New runtime symbols live in
+  `compiler/runtime.h` / `compiler/runtime.c`.
+- **Division and modulo** in stage-1: `/` and `%` tokens, `EDiv`/`EMod`
+  expression nodes, codegen at the same precedence as `*`.
+- **For-in-range loops** in stage-1: `for i in lo..hi { ... }` lowers to a
+  C `for` loop bound to `int64_t`.
+- **`mom selfhost`** CLI subcommand orchestrates the stage-1 pipeline
+  end-to-end (interpret stage-1 → emit C → link with runtime →
+  optionally run); see `mom help`. Flags: `-o OUT`, `--run`,
+  `--emit-c PATH`.
+- **Stage-1.2 acceptance tests** in `tests/selfhost.rs`:
+  `stage1_2_compiles_division_and_modulo`,
+  `stage1_2_compiles_string_println_concat`,
+  `stage1_2_compiles_str_bool_and_len`,
+  `stage1_2_compiles_for_in_range`.
+
+### Bug fixes (stage-0)
+
+- **Brace-style block expressions** now parse correctly when used as
+  match-arm bodies (e.g. `Some(Inc) => { count = count + 1 }`). The
+  parser previously committed to a dict literal as soon as it saw `{`,
+  yielding "expected ':' in dict literal" for any block-shaped arm.
+  Disambiguation now looks at the next two tokens: `IDENT :` /
+  `STRING :` → dict; anything else → block expression.
+- **Bounded channels** now reject `.send(v)` when the queue is at
+  capacity, raising `bounded channel at capacity (N)`. Previously the
+  capacity argument was retained but never enforced.
+- **`channel_powers_actor_like_pattern`**,
+  **`channel_bounded_capacity_rejects_overflow`**,
+  **`allows_sequential_mut_borrows`**, and
+  **`std_actor_runs_to_completion_with_expected_oracle`** all pass now
+  as a result of the two fixes above.
+
+### Still out of scope (deferred to stage-1.3+)
+
+- Python-style INDENT/DEDENT in stage-1 — requires an indent-aware
+  lexer; current stage-1 accepts the brace form only. The
+  `compiler/examples/*.mom` files were rewritten in brace style so the
+  bootstrap pipeline runs against the same files the surface compiler
+  ingests.
+- Self-host fixed point (stage-1.4): stage-1 still lacks structs,
+  enums, lists, and pattern matching, which are used by
+  `compiler/src/main.mom` itself. RFC #0001 tracks the codegen
+  widening required to close this gap.
+
+
 ## [0.2.0] — Python-style syntax + Windows ARM
 
 ### Added

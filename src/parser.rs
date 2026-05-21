@@ -969,8 +969,21 @@ impl Parser {
                 }
             }
             TokenKind::LeftBrace => {
-                // Dict literal: { key: value, ... } or old block expression
-                self.parse_dict_literal(token.span)
+                // Either dict literal `{ key: value, ... }` or a block
+                // expression `{ stmts... }`. We disambiguate by peeking
+                // past the brace at the next two tokens:
+                //   { IDENT :  → dict
+                //   { STRING : → dict
+                //   { }        → empty block (Unit)
+                //   otherwise  → block expression
+                if self.looks_like_dict_literal() {
+                    self.parse_dict_literal(token.span)
+                } else {
+                    // Put `{` back conceptually — parse_block_brace expects to consume it.
+                    self.current -= 1;
+                    let block = self.parse_block_brace()?;
+                    Ok(Expr::Block(block))
+                }
             }
             TokenKind::LeftBracket => self.parse_list_literal(token.span),
             TokenKind::Keyword(Keyword::If) => self.parse_if_expression(token.span),
@@ -1018,6 +1031,27 @@ impl Parser {
         }
         self.expect_kind(&TokenKind::RightBrace, "expected '}' in struct literal")?;
         Ok(Expr::StructLit { name, fields, span })
+    }
+
+    /// True iff the tokens *after the already-consumed `{`* look like a
+    /// dict literal opener (`IDENT :` or `STRING :`). Used to disambiguate
+    /// dict literals from brace-style block expressions.
+    fn looks_like_dict_literal(&self) -> bool {
+        // Skip newlines/indents that may sit between `{` and the first token.
+        let mut i = self.current;
+        while i < self.tokens.len() {
+            match self.tokens[i].kind {
+                TokenKind::Newline | TokenKind::Indent | TokenKind::Dedent => i += 1,
+                _ => break,
+            }
+        }
+        let first = self.tokens.get(i).map(|t| &t.kind);
+        let second = self.tokens.get(i + 1).map(|t| &t.kind);
+        matches!(
+            (first, second),
+            (Some(TokenKind::Ident(_)), Some(TokenKind::Colon))
+                | (Some(TokenKind::String(_)), Some(TokenKind::Colon))
+        )
     }
 
     fn parse_dict_literal(&mut self, span: Span) -> LangResult<Expr> {

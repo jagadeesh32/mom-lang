@@ -164,6 +164,19 @@ char *mom_strcat_alloc(const char *a, const char *b);
 void mom_print_int(int64_t n);
 void mom_print_bool(int b);
 void mom_print_unit(void);
+void mom_print_str(const char *s);
+
+// Conversion helpers callable from stage-1-generated C.
+const char *mom_str_from_int(int64_t n);
+const char *mom_str_from_bool(int b);
+
+// Raw string length helper — strlen with a fixed type.
+int64_t mom_str_len_raw(const char *s);
+
+// Raw `parse_int`-like helper: returns the digit value 0..9 if `c` is a
+// digit, otherwise -1. Used by self-hosted programs that don't yet have
+// Option types.
+int64_t mom_digit_value(const char *c);
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 // stage-1 compiled programs define mom_main(); runtime provides main().

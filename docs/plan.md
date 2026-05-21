@@ -116,10 +116,12 @@ work-stealing arrives in Phase 3.1.
 | stage-1 emits ELF binary that prints expected output   | ✅    | aarch64-linux ELF demoed              |
 | stage-1.0 supported source subset                      | ✅    | `fn main() { let / let mut / NAME = EXPR / print(EXPR) }` over Int with `+`, `-`, `*` |
 | **stage-1.1** — multiple functions, `if/else`, `while`, `return`, Bool, comparisons (`== != < <= > >=`), logical (`&& || !`), unary `-`, function calls | ✅ | 10 selfhost tests; compiles `fib`, `factorial`, mutual calls, Bool predicates |
-| stage-1.2 — structs, enums, pattern matching, lists    | ⏳ 4.2 | port the AST + visitor                |
-| stage-1.3 — references, regions, `Box`/`Rc`/`Arc`      | ⏳ 4.3 | port the borrow checker               |
-| stage-1.4 — stage-1 compiles itself (bit-identical FP) | ⏳ 4.4 | the headline self-host milestone      |
-| stage-2 — Rust stage-0 retired                         | ⏳ 4.5 | mom binary self-distributes           |
+| **stage-1.2** — `String` literals, `+` string concat, `len`/`str`/`println` builtins, `/`/`%` operators, `for i in lo..hi` loops | ✅ | 4 new selfhost tests; `compiler/examples/{hello,counter,sum,fibonacci,for_range}.mom` compile end-to-end via `mom selfhost` |
+| stage-1.3 — Python-style `:` blocks in stage-1         | ⏳ 4.3 | indent-aware lexer in mom-in-mom       |
+| stage-1.4 — structs, enums, pattern matching, lists    | ⏳ 4.4 | port the AST + visitor                |
+| stage-1.5 — references, regions, `Box`/`Rc`/`Arc`      | ⏳ 4.5 | port the borrow checker               |
+| stage-1.6 — stage-1 compiles itself (bit-identical FP) | ⏳ 4.6 | the headline self-host milestone      |
+| stage-2 — Rust stage-0 retired                         | ⏳ 4.7 | mom binary self-distributes           |
 
 ---
 

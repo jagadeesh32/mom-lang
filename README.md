@@ -207,6 +207,10 @@ mom bench     [file.mom]                  # benchmark #[bench] functions
 mom prof      [file.mom]                  # profile with call-trace
 mom dbg       [file.mom]                  # DAP-over-stdio debugger
 
+# Self-host bootstrap
+mom selfhost  <file.mom> [-o OUT] [--run] # drive stage-1 (mom-in-mom)
+                                          # compiler end-to-end and link
+
 mom version                               # print compiler version
 mom help                                  # full help
 ```

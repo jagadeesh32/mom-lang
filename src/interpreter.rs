@@ -1687,6 +1687,14 @@ impl Interpreter {
             "send" => {
                 if args.len() != 2 { return Err(error("Channel.send expects 1 argument", span)); }
                 if *chan.closed.borrow() { return Err(error("send on closed channel", span)); }
+                if let Some(cap) = chan.capacity {
+                    if chan.queue.borrow().len() >= cap {
+                        return Err(error(
+                            format!("bounded channel at capacity ({cap})"),
+                            span,
+                        ));
+                    }
+                }
                 chan.queue.borrow_mut().push_back(args[1].clone());
                 Ok(Flow::Value(Value::Unit))
             }

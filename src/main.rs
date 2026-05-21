@@ -82,6 +82,7 @@ fn run_cli() -> LangResult<()> {
         })?,
         "dbg" => run_dbg(args)?,
         "prof" => run_prof(args)?,
+        "selfhost" => run_selfhost(args)?,
         "version" | "--version" | "-V" => {
             println!("mom {}", env!("CARGO_PKG_VERSION"));
         }
@@ -531,6 +532,143 @@ fn run_prof<I: Iterator<Item = String>>(mut args: I) -> LangResult<()> {
     Ok(())
 }
 
+/// `mom selfhost <file.mom> [-o OUT] [--run]` — drive the stage-1
+/// mom-in-mom compiler end-to-end:
+///   1. interpret `compiler/src/main.mom` with MOM_INPUT/MOM_OUTPUT set
+///   2. link the emitted C with `compiler/runtime.c` via `$CC` (default `cc`)
+///   3. with `--run`, immediately execute the resulting binary
+fn run_selfhost<I: Iterator<Item = String>>(mut args: I) -> LangResult<()> {
+    let mut source_path: Option<PathBuf> = None;
+    let mut output_path: Option<PathBuf> = None;
+    let mut execute = false;
+    let mut keep_c: Option<PathBuf> = None;
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "-o" | "--output" => {
+                output_path = Some(PathBuf::from(args.next().ok_or_else(|| {
+                    Diagnostic::at_start("expected a path after '-o'")
+                })?));
+            }
+            "--emit-c" => {
+                keep_c = Some(PathBuf::from(args.next().ok_or_else(|| {
+                    Diagnostic::at_start("expected a path after '--emit-c'")
+                })?));
+            }
+            "--run" => execute = true,
+            other if other.starts_with('-') => {
+                return Err(Diagnostic::at_start(format!(
+                    "unknown selfhost flag '{other}'"
+                )));
+            }
+            other => {
+                if source_path.is_some() {
+                    return Err(Diagnostic::at_start(format!(
+                        "unexpected positional argument '{other}'"
+                    )));
+                }
+                source_path = Some(PathBuf::from(other));
+            }
+        }
+    }
+
+    let source_path = source_path
+        .ok_or_else(|| Diagnostic::at_start("expected a source .mom file for 'selfhost'"))?;
+
+    // Repo root is the directory containing `compiler/src/main.mom`.
+    let exe = std::env::current_exe().map_err(|err| {
+        Diagnostic::at_start(format!("cannot resolve current executable: {err}"))
+    })?;
+    let from_exe: Option<PathBuf> = exe
+        .ancestors()
+        .find(|p| p.join("compiler/src/main.mom").exists())
+        .map(|p| p.to_path_buf());
+    let from_cwd: Option<PathBuf> = std::env::current_dir().ok().and_then(|cwd| {
+        cwd.ancestors()
+            .find(|p| p.join("compiler/src/main.mom").exists())
+            .map(|p| p.to_path_buf())
+    });
+    let repo_root = from_exe
+        .or(from_cwd)
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    let compiler_src = repo_root.join("compiler/src/main.mom");
+    let runtime_c = repo_root.join("compiler/runtime.c");
+    let runtime_include = repo_root.join("compiler");
+    if !compiler_src.exists() {
+        return Err(Diagnostic::at_start(format!(
+            "stage-1 compiler not found at {} (run from the mom repo root)",
+            compiler_src.display()
+        )));
+    }
+    if !runtime_c.exists() {
+        return Err(Diagnostic::at_start(format!(
+            "stage-1 runtime not found at {}",
+            runtime_c.display()
+        )));
+    }
+
+    let work_dir = repo_root.join("target/selfhost");
+    fs::create_dir_all(&work_dir).map_err(|err| {
+        Diagnostic::at_start(format!("cannot create work dir: {err}"))
+    })?;
+
+    let stem = source_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "out".into());
+    let c_out = keep_c.unwrap_or_else(|| work_dir.join(format!("{stem}.c")));
+    let bin_out = output_path.unwrap_or_else(|| work_dir.join(&stem));
+
+    // Step 1: run stage-1 compiler with env vars
+    let exe_str = exe.as_os_str().to_owned();
+    let status = Command::new(&exe_str)
+        .arg("run")
+        .arg(&compiler_src)
+        .env("MOM_INPUT", &source_path)
+        .env("MOM_OUTPUT", &c_out)
+        .status()
+        .map_err(|err| Diagnostic::at_start(format!("failed to spawn stage-1: {err}")))?;
+    if !status.success() {
+        return Err(Diagnostic::at_start(
+            "stage-1 compiler exited non-zero (input outside the stage-1 subset?)",
+        ));
+    }
+    eprintln!("emitted {}", c_out.display());
+
+    // Step 2: cc the generated C with the runtime
+    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".into());
+    let status = Command::new(&cc)
+        .arg("-std=c99")
+        .arg("-O2")
+        .arg("-I")
+        .arg(&runtime_include)
+        .arg(&c_out)
+        .arg(&runtime_c)
+        .arg("-o")
+        .arg(&bin_out)
+        .status()
+        .map_err(|err| Diagnostic::at_start(format!("failed to spawn cc ('{cc}'): {err}")))?;
+    if !status.success() {
+        return Err(Diagnostic::at_start("cc failed on stage-1 output"));
+    }
+    eprintln!("linked {}", bin_out.display());
+
+    if execute {
+        let status = Command::new(&bin_out).status().map_err(|err| {
+            Diagnostic::at_start(format!(
+                "failed to execute '{}': {err}",
+                bin_out.display()
+            ))
+        })?;
+        if !status.success() {
+            process::exit(status.code().unwrap_or(1));
+        }
+    }
+    Ok(())
+}
+
 fn derive_output_path(source_path: &PathBuf) -> PathBuf {
     let stem = source_path
         .file_stem()
@@ -580,10 +718,14 @@ Phase 5 tooling:\n  \
   mom lsp                              Run the LSP server on stdio\n  \
   mom dbg                              Run the DAP debugger driver on stdio\n  \
   mom prof       <file.mom> [--format text|folded|pprof] [-o OUT]\n                                       Profile a program via the interpreter\n\n\
+Self-host bootstrap:\n  \
+  mom selfhost   <file.mom> [-o OUT] [--run] [--emit-c PATH]\n                                       Drive the mom-in-mom stage-1 compiler:\n                                       lex → parse → emit C → cc → (optionally) run\n\n\
   mom version                          Print compiler version\n  \
   mom help                             Show this help\n\n\
 Phase 1 native codegen supports the Int/Bool/Unit subset (functions,\n\
 arithmetic, comparisons, if/while/for-in/return, print, recursion).\n\
+Stage-1.2 mom-in-mom (compiler/src/main.mom) additionally compiles:\n\
+strings, +/-/*/`/`/`%`, str()/len()/println, and for-in-range loops.\n\
 See docs/plan.md for the full roadmap.",
         version = env!("CARGO_PKG_VERSION"),
     );

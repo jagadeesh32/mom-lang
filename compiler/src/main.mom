@@ -34,13 +34,18 @@ enum Token:
     TIf
     TElse
     TWhile
+    TFor
+    TIn
     TReturn
+    TDotDot
     TTrue
     TFalse
     TEq
     TPlus
     TMinus
     TStar
+    TSlash
+    TPercent
     TLParen
     TRParen
     TLBrace
@@ -60,21 +65,26 @@ enum Token:
     TBang
     TIdent(String)
     TInt(Int)
+    TStr(String)
     TEOF
 
 enum Type:
     TyInt
     TyBool
     TyUnit
+    TyStr
 
 enum Expr:
     EInt(Int)
     EBool(Bool)
+    EStr(String)
     EVar(String)
     ECall(String, [Expr])
     EAdd(Expr, Expr)
     ESub(Expr, Expr)
     EMul(Expr, Expr)
+    EDiv(Expr, Expr)
+    EMod(Expr, Expr)
     EEq(Expr, Expr)
     ENe(Expr, Expr)
     ELt(Expr, Expr)
@@ -92,6 +102,7 @@ enum Stmt:
     SPrint(Expr)
     SIf(Expr, [Stmt], [Stmt])
     SWhile(Expr, [Stmt])
+    SFor(String, Expr, Expr, [Stmt])
     SReturn(Expr)
     SReturnUnit
     SExpr(Expr)
@@ -135,7 +146,39 @@ fn lex(source: String) -> [Token]:
                 while i < n && source[i] != "\n":
                     i = i + 1
             else:
-                panic("unexpected '/' (division not supported in stage-1.1)")
+                push(tokens, TSlash)
+                i = i + 1
+        else if c == "%":
+            push(tokens, TPercent)
+            i = i + 1
+        else if c == "\"":
+            i = i + 1
+            let mut text = ""
+            while i < n && source[i] != "\"":
+                if source[i] == "\\" && i + 1 < n:
+                    let esc = source[i + 1]
+                    if esc == "n":
+                        text = text + "\n"
+                    else if esc == "t":
+                        text = text + "\t"
+                    else if esc == "r":
+                        text = text + "\r"
+                    else if esc == "\\":
+                        text = text + "\\"
+                    else if esc == "\"":
+                        text = text + "\""
+                    else if esc == "0":
+                        text = text + "\0"
+                    else:
+                        panic("unknown escape sequence in string literal")
+                    i = i + 2
+                else:
+                    text = text + source[i]
+                    i = i + 1
+            if i >= n:
+                panic("unterminated string literal")
+            i = i + 1
+            push(tokens, TStr(text))
         else if c == "(":
             push(tokens, TLParen)
             i = i + 1
@@ -163,6 +206,12 @@ fn lex(source: String) -> [Token]:
         else if c == "*":
             push(tokens, TStar)
             i = i + 1
+        else if c == ".":
+            if i + 1 < n && source[i + 1] == ".":
+                push(tokens, TDotDot)
+                i = i + 2
+            else:
+                panic("unexpected '.' (member access not supported in stage-1.2)")
         else if c == "-":
             if i + 1 < n && source[i + 1] == ">":
                 push(tokens, TArrow)
@@ -235,6 +284,10 @@ fn lex(source: String) -> [Token]:
                 push(tokens, TElse)
             else if text == "while":
                 push(tokens, TWhile)
+            else if text == "for":
+                push(tokens, TFor)
+            else if text == "in":
+                push(tokens, TIn)
             else if text == "return":
                 push(tokens, TReturn)
             else if text == "true":
@@ -376,8 +429,10 @@ fn parse_type_name(name: String) -> Type:
         TyBool
     else if name == "Unit":
         TyUnit
+    else if name == "String" || name == "Str":
+        TyStr
     else:
-        panic("unsupported type in stage-1.1: " + name)
+        panic("unsupported type in stage-1.2: " + name)
 
 // ───────────────────────── expression parser ─────────────────────────
 
@@ -385,6 +440,7 @@ fn parse_primary(state: ParseState) -> Expr:
     let t = advance(state)
     match t:
         TInt(n)      => EInt(n)
+        TStr(s)      => EStr(s)
         TTrue        => EBool(true)
         TFalse       => EBool(false)
         TBang        => ENot(parse_unary(state))
@@ -442,6 +498,16 @@ fn is_token_star(t: Token) -> Bool:
     match t:
         TStar => true
         _     => false
+
+fn is_token_slash(t: Token) -> Bool:
+    match t:
+        TSlash => true
+        _      => false
+
+fn is_token_percent(t: Token) -> Bool:
+    match t:
+        TPercent => true
+        _        => false
 
 fn is_token_plus(t: Token) -> Bool:
     match t:
@@ -501,6 +567,12 @@ fn parse_mul(state: ParseState) -> Expr:
         if is_token_star(t):
             advance(state)
             left = EMul(left, parse_unary(state))
+        else if is_token_slash(t):
+            advance(state)
+            left = EDiv(left, parse_unary(state))
+        else if is_token_percent(t):
+            advance(state)
+            left = EMod(left, parse_unary(state))
         else:
             done = true
     left
@@ -605,8 +677,34 @@ fn parse_stmt(state: ParseState) -> Stmt:
         TReturn => parse_stmt_return(state)
         TIf     => parse_stmt_if(state)
         TWhile  => parse_stmt_while(state)
+        TFor    => parse_stmt_for(state)
         TIdent(name) => parse_stmt_ident(state, name)
         _       => panic("expected statement")
+
+fn is_token_in(t: Token) -> Bool:
+    match t:
+        TIn => true
+        _   => false
+
+fn is_token_dotdot(t: Token) -> Bool:
+    match t:
+        TDotDot => true
+        _       => false
+
+fn parse_stmt_for(state: ParseState) -> Stmt:
+    // `for NAME in LO..HI { body }`
+    advance(state)
+    let name = expect_ident(state)
+    let tin = advance(state)
+    if !is_token_in(tin):
+        panic("expected 'in' in for-loop")
+    let lo = parse_expr(state)
+    let tdot = advance(state)
+    if !is_token_dotdot(tdot):
+        panic("expected '..' in for-loop range")
+    let hi = parse_expr(state)
+    let body = parse_block(state)
+    SFor(name, lo, hi, body)
 
 fn parse_stmt_let(state: ParseState) -> Stmt:
     advance(state)
@@ -671,7 +769,7 @@ fn parse_stmt_while(state: ParseState) -> Stmt:
 
 fn parse_stmt_ident(state: ParseState, name: String) -> Stmt:
     advance(state)
-    if name == "print":
+    if name == "print" || name == "println":
         parse_stmt_print(state)
     else:
         parse_stmt_ident_after_name(state, name)
@@ -775,6 +873,7 @@ fn type_to_c(t: Type) -> String:
         TyInt  => "int64_t"
         TyBool => "bool"
         TyUnit => "void"
+        TyStr  => "const char*"
 
 fn lookup_local(scope: [LocalEntry], name: String) -> Type:
     let mut i = 0
@@ -804,11 +903,14 @@ fn emit_expr(e: Expr, scope: [LocalEntry], fns: [Fn]) -> EmitResult:
     match e:
         EInt(n)  => EmitResult { src: "INT64_C(" + to_string(n) + ")", ty: TyInt }
         EBool(b) => emit_expr_bool(b)
+        EStr(s)  => EmitResult { src: "\"" + c_escape(s) + "\"", ty: TyStr }
         EVar(name) => EmitResult { src: name, ty: lookup_local(scope, name) }
         ECall(name, args) => emit_call(name, args, scope, fns)
-        EAdd(l, r)  => emit_arith(l, r, "+", scope, fns)
+        EAdd(l, r)  => emit_add(l, r, scope, fns)
         ESub(l, r)  => emit_arith(l, r, "-", scope, fns)
         EMul(l, r)  => emit_arith(l, r, "*", scope, fns)
+        EDiv(l, r)  => emit_arith(l, r, "/", scope, fns)
+        EMod(l, r)  => emit_arith(l, r, "%", scope, fns)
         EEq(l, r)   => emit_cmp(l, r, "==", scope, fns)
         ENe(l, r)   => emit_cmp(l, r, "!=", scope, fns)
         ELt(l, r)   => emit_cmp(l, r, "<",  scope, fns)
@@ -820,6 +922,40 @@ fn emit_expr(e: Expr, scope: [LocalEntry], fns: [Fn]) -> EmitResult:
         ENot(inner) => emit_not(inner, scope, fns)
         ENeg(inner) => emit_neg(inner, scope, fns)
 
+fn is_ty_str(t: Type) -> Bool:
+    match t:
+        TyStr => true
+        _     => false
+
+fn emit_add(l: Expr, r: Expr, scope: [LocalEntry], fns: [Fn]) -> EmitResult:
+    let lr = emit_expr(l, scope, fns)
+    let rr = emit_expr(r, scope, fns)
+    if is_ty_str(lr.ty) || is_ty_str(rr.ty):
+        EmitResult { src: "mom_strcat_alloc(" + lr.src + ", " + rr.src + ")", ty: TyStr }
+    else:
+        EmitResult { src: "(" + lr.src + " + " + rr.src + ")", ty: TyInt }
+
+fn c_escape(s: String) -> String:
+    let mut out = ""
+    let mut i = 0
+    let n = len(s)
+    while i < n:
+        let c = s[i]
+        if c == "\\":
+            out = out + "\\\\"
+        else if c == "\"":
+            out = out + "\\\""
+        else if c == "\n":
+            out = out + "\\n"
+        else if c == "\t":
+            out = out + "\\t"
+        else if c == "\r":
+            out = out + "\\r"
+        else:
+            out = out + c
+        i = i + 1
+    out
+
 fn emit_expr_bool(b: Bool) -> EmitResult:
     if b:
         EmitResult { src: "true", ty: TyBool }
@@ -827,17 +963,35 @@ fn emit_expr_bool(b: Bool) -> EmitResult:
         EmitResult { src: "false", ty: TyBool }
 
 fn emit_call(name: String, args: [Expr], scope: [LocalEntry], fns: [Fn]) -> EmitResult:
-    let f = lookup_fn(fns, name)
-    let mut src = c_name_of(name) + "("
-    let mut i = 0
-    while i < len(args):
-        if i > 0:
-            src = src + ", "
-        let r = emit_expr(args[i], scope, fns)
-        src = src + r.src
-        i = i + 1
-    src = src + ")"
-    EmitResult { src: src, ty: f.ret }
+    // Builtins: str(x), len(s) — emit specialised C without an fns lookup.
+    if name == "str":
+        if len(args) != 1:
+            panic("str() takes one argument")
+        let r = emit_expr(args[0], scope, fns)
+        match r.ty:
+            TyInt  => EmitResult { src: "mom_str_from_int("  + r.src + ")", ty: TyStr }
+            TyBool => EmitResult { src: "mom_str_from_bool(" + r.src + ")", ty: TyStr }
+            TyStr  => r
+            _      => panic("str() expects Int, Bool, or String")
+    else if name == "len":
+        if len(args) != 1:
+            panic("len() takes one argument")
+        let r = emit_expr(args[0], scope, fns)
+        if !is_ty_str(r.ty):
+            panic("len() expects a String in stage-1.2")
+        EmitResult { src: "mom_str_len_raw(" + r.src + ")", ty: TyInt }
+    else:
+        let f = lookup_fn(fns, name)
+        let mut src = c_name_of(name) + "("
+        let mut i = 0
+        while i < len(args):
+            if i > 0:
+                src = src + ", "
+            let r = emit_expr(args[i], scope, fns)
+            src = src + r.src
+            i = i + 1
+        src = src + ")"
+        EmitResult { src: src, ty: f.ret }
 
 fn emit_not(inner: Expr, scope: [LocalEntry], fns: [Fn]) -> EmitResult:
     let r = emit_expr(inner, scope, fns)
@@ -878,9 +1032,21 @@ fn emit_stmt(stmt: Stmt, scope: [LocalEntry], fns: [Fn], depth: Int, ret_ty: Typ
         SPrint(value)               => emit_stmt_print(pad, value, scope, fns)
         SIf(cond, then_stmts, else_stmts) => emit_stmt_if(pad, cond, then_stmts, else_stmts, scope, fns, depth, ret_ty)
         SWhile(cond, body)          => emit_stmt_while(pad, cond, body, scope, fns, depth, ret_ty)
+        SFor(name, lo, hi, body)    => emit_stmt_for(pad, name, lo, hi, body, scope, fns, depth, ret_ty)
         SReturn(value)              => emit_stmt_return(pad, value, scope, fns)
         SReturnUnit                 => pad + "return;\n"
         SExpr(value)                => emit_stmt_expr(pad, value, scope, fns)
+
+fn emit_stmt_for(pad: String, name: String, lo: Expr, hi: Expr, body: [Stmt], scope: [LocalEntry], fns: [Fn], depth: Int, ret_ty: Type) -> String:
+    // Lower `for name in lo..hi { body }` to a C for-loop over int64_t,
+    // with the iterator visible in the body's scope.
+    let lr = emit_expr(lo, scope, fns)
+    let hr = emit_expr(hi, scope, fns)
+    push(scope, LocalEntry { name: name, ty: TyInt })
+    let mut out = pad + "for (int64_t " + name + " = " + lr.src + "; " + name + " < " + hr.src + "; " + name + "++) {\n"
+    out = out + emit_block(body, scope, fns, depth + 1, ret_ty)
+    out = out + pad + "}\n"
+    out
 
 fn emit_stmt_let(pad: String, name: String, value: Expr, scope: [LocalEntry], fns: [Fn]) -> String:
     let r = emit_expr(value, scope, fns)
@@ -901,6 +1067,7 @@ fn print_helper(ty: Type) -> String:
         TyInt  => "mom_print_int"
         TyBool => "mom_print_bool"
         TyUnit => "mom_print_unit"
+        TyStr  => "mom_print_str"
 
 fn emit_stmt_if(pad: String, cond: Expr, then_stmts: [Stmt], else_stmts: [Stmt], scope: [LocalEntry], fns: [Fn], depth: Int, ret_ty: Type) -> String:
     let cr = emit_expr(cond, scope, fns)

@@ -368,7 +368,10 @@ fn stage1_compiles_hello_example() {
     let mom = root.join("compiler/examples/hello.mom");
     if !mom.exists() { return; }
     if let Some(out) = try_run_stage1_file(&mom, "hello") {
-        assert_eq!(out, "hello from stage-1!\n");
+        assert_eq!(
+            out,
+            "hello from stage-1!\nhello, mom!\ngreeting count: 1\n"
+        );
     }
     // else: compiler rejected the file — expected until enhanced compiler lands
 }
@@ -458,6 +461,76 @@ fn stage1_1_compiles_nested_calls() {
         "nested",
     );
     assert_eq!(out, "25\n");
+}
+
+// ── stage-1.2 regression tests (strings, div/mod, for-in-range) ───────────────
+
+#[test]
+fn stage1_2_compiles_division_and_modulo() {
+    let out = run_stage1(
+        r#"
+        fn main() {
+            print(7 / 2)
+            print(7 % 2)
+            print(100 / 3)
+            print(100 % 3)
+            print(2 * 3 + 8 / 4 - 1)
+        }
+        "#,
+        "divmod",
+    );
+    assert_eq!(out, "3\n1\n33\n1\n7\n");
+}
+
+#[test]
+fn stage1_2_compiles_string_println_concat() {
+    let out = run_stage1(
+        r#"
+        fn greet(name: String) -> String {
+            return "hello, " + name + "!"
+        }
+
+        fn main() {
+            println("hello from stage-1!")
+            println(greet("mom"))
+            println("count: " + str(42))
+        }
+        "#,
+        "strings",
+    );
+    assert_eq!(out, "hello from stage-1!\nhello, mom!\ncount: 42\n");
+}
+
+#[test]
+fn stage1_2_compiles_str_bool_and_len() {
+    let out = run_stage1(
+        r#"
+        fn main() {
+            println(str(true))
+            println(str(false))
+            print(len("hello"))
+        }
+        "#,
+        "str_bool_len",
+    );
+    assert_eq!(out, "true\nfalse\n5\n");
+}
+
+#[test]
+fn stage1_2_compiles_for_in_range() {
+    let out = run_stage1(
+        r#"
+        fn main() {
+            let mut total = 0
+            for i in 0..5 {
+                total = total + i
+            }
+            print(total)
+        }
+        "#,
+        "for_range",
+    );
+    assert_eq!(out, "10\n");
 }
 
 #[test]

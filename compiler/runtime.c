@@ -946,6 +946,34 @@ void mom_print_unit(void) {
     printf("()\n");
 }
 
+void mom_print_str(const char *s) {
+    /* stage-1 `print(s: String)` prints the string and a newline,
+     * matching the behaviour of mom_print_int/bool. */
+    if (s) fputs(s, stdout);
+    fputc('\n', stdout);
+}
+
+const char *mom_str_from_int(int64_t n) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%" PRId64, n);
+    return mom_strdup(buf);
+}
+
+const char *mom_str_from_bool(int b) {
+    return mom_strdup(b ? "true" : "false");
+}
+
+int64_t mom_str_len_raw(const char *s) {
+    return s ? (int64_t)strlen(s) : 0;
+}
+
+int64_t mom_digit_value(const char *c) {
+    if (!c || !*c) return -1;
+    unsigned char ch = (unsigned char)c[0];
+    if (ch >= '0' && ch <= '9') return (int64_t)(ch - '0');
+    return -1;
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 // The stage-1 compiler emits mom_main() instead of main().
 // This wrapper calls it so the binary can be executed directly.

@@ -1,7 +1,14 @@
-// hello.mom — stage-1 demo: print a string literal.
-// Expected output: hello from stage-1!
-//
-// Requires: stage-1 compiler with string literal + println support.
+// hello.mom — stage-1.2 demo: string literal + println.
+// Expected output:
+//   hello from stage-1!
+//   greeting count: 1
 
-fn main():
+fn greet(name: String) -> String {
+    return "hello, " + name + "!"
+}
+
+fn main() {
     println("hello from stage-1!")
+    println(greet("mom"))
+    println("greeting count: " + str(1))
+}

@@ -4,8 +4,9 @@
 // compiles this to C, links against runtime.c, and runs.
 // Expected stdout: 42
 
-fn main():
+fn main() {
     let a = 6
     let b = 7
     let answer = a * b
     print(answer)
+}
