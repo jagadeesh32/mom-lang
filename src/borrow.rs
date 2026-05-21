@@ -403,6 +403,13 @@ impl BorrowChecker {
             }
             Expr::Region { body, .. } => self.check_block(body),
             Expr::Block(block) => self.check_block(block),
+            Expr::Dict(pairs, _) => {
+                for (k, v) in pairs {
+                    self.visit_expr_internal(k, false)?;
+                    self.visit_expr_internal(v, false)?;
+                }
+                Ok(())
+            }
         }
     }
 

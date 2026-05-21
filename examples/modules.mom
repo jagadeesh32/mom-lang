@@ -3,17 +3,16 @@
 // In production, modules live in their own files (`net/http.mom`).
 // This example shows the same syntax in a single file for clarity.
 
-module net {
-    pub struct Address { host: String, port: Int }
+module net:
+    pub struct Address:
+        host: String
+        port: Int
 
-    pub fn pretty(addr: Address) -> String {
+    pub fn pretty(addr: Address) -> String:
         addr.host + ":" + to_string(addr.port)
-    }
-}
 
 import net.{Address, pretty}
 
-fn main() {
+fn main():
     let a = Address { host: "127.0.0.1", port: 8080 }
     print(pretty(a))
-}

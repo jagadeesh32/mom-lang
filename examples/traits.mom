@@ -4,28 +4,26 @@
 // on struct values; the native compiler will additionally support
 // monomorphized generic dispatch and `dyn Trait`.
 
-trait Shape {
+trait Shape:
     fn area(self) -> Float
-}
 
-struct Circle { radius: Float }
-struct Rect   { w: Float, h: Float }
+struct Circle:
+    radius: Float
 
-impl Shape for Circle {
-    fn area(self) -> Float {
+struct Rect:
+    w: Float
+    h: Float
+
+impl Shape for Circle:
+    fn area(self) -> Float:
         3.14159 * self.radius * self.radius
-    }
-}
 
-impl Shape for Rect {
-    fn area(self) -> Float {
+impl Shape for Rect:
+    fn area(self) -> Float:
         self.w * self.h
-    }
-}
 
-fn main() {
+fn main():
     let c = Circle { radius: 2.0 }
     let r = Rect   { w: 3.0, h: 4.0 }
     print(c.area())
     print(r.area())
-}

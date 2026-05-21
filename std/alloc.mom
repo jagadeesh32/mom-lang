@@ -8,15 +8,14 @@
 // Acceptance: `main()` exercises the four wrappers and prints their
 // values.
 
-fn region_value() -> String {
+fn region_value() -> String:
     let label = region r {
         let tag = "request:GET /healthz"
         tag
     }
     label
-}
 
-fn main() {
+fn main():
     let boxed = Box(99)
     print(boxed)                  // 99
 
@@ -27,4 +26,3 @@ fn main() {
     print(atomic)                 // true
 
     print(region_value())         // request:GET /healthz
-}

@@ -1,0 +1,10 @@
+// counter.mom — stage-1 demo: while loop with mutable counter.
+// Expected output: 0 1 2 3 4 (one per line)
+//
+// Requires: stage-1 compiler with str() + println support.
+
+fn main():
+    let mut i = 0
+    while i < 5:
+        println(str(i))
+        i = i + 1

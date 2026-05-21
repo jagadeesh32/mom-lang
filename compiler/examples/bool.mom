@@ -1,17 +1,14 @@
 // bool.mom — stage-1.1 demo: Bool, comparisons, logical ops.
 
-fn between(lo: Int, x: Int, hi: Int) -> Bool {
-    return lo <= x && x <= hi
-}
+fn between(lo: Int, x: Int, hi: Int) -> Bool:
+    return lo <= x and x <= hi
 
-fn at_most_one(a: Bool, b: Bool) -> Bool {
-    return !a || !b
-}
+fn at_most_one(a: Bool, b: Bool) -> Bool:
+    return not a or not b
 
-fn main() {
+fn main():
     print(between(1, 5, 10))
     print(between(1, 99, 10))
-    print(at_most_one(true, true))
-    print(at_most_one(true, false))
+    print(at_most_one(True, True))
+    print(at_most_one(True, False))
     print(1 + 2 * 3 == 7)
-}

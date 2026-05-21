@@ -420,6 +420,12 @@ impl<'a> LintCtx<'a> {
             | Expr::Ref { expr, .. } => self.visit_expr(expr),
             Expr::Region { body, .. } => self.visit_block(body),
             Expr::Block(b) => self.visit_block(b),
+            Expr::Dict(pairs, _) => {
+                for (k, v) in pairs {
+                    self.visit_expr(k);
+                    self.visit_expr(v);
+                }
+            }
         }
     }
 

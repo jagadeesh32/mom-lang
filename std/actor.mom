@@ -7,29 +7,25 @@
 // restart-on-failure semantics; the stage-0 version is the same
 // architecture in plain functions.
 
-enum CounterMsg {
-    Inc,
-    Add(Int),
-    Get,
-    Stop,
-}
+enum CounterMsg:
+    Inc
+    Add(Int)
+    Get
+    Stop
 
-fn run_counter(mailbox: Channel[CounterMsg]) -> Int {
+fn run_counter(mailbox: Channel[CounterMsg]) -> Int:
     let mut count = 0
     let mut running = true
-    while running {
-        match mailbox.recv() {
-            Some(Inc)    => { count = count + 1 },
-            Some(Add(n)) => { count = count + n },
-            Some(Get)    => { print(count) },
-            Some(Stop)   => { running = false },
-            None         => { running = false },
-        }
-    }
+    while running:
+        match mailbox.recv():
+            Some(Inc)    => { count = count + 1 }
+            Some(Add(n)) => { count = count + n }
+            Some(Get)    => { print(count) }
+            Some(Stop)   => { running = false }
+            None         => { running = false }
     count
-}
 
-fn main() {
+fn main():
     let mailbox = Channel(16)
     mailbox.send(Inc)
     mailbox.send(Inc)
@@ -38,4 +34,3 @@ fn main() {
     mailbox.send(Stop)
     let final_count = run_counter(mailbox)
     print(final_count)       // 42
-}

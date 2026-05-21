@@ -27,929 +27,1051 @@
 
 // ───────────────────────── data types ─────────────────────────
 
-enum Token {
-    TFn,
-    TLet,
-    TMut,
-    TIf,
-    TElse,
-    TWhile,
-    TReturn,
-    TTrue,
-    TFalse,
-    TEq,
-    TPlus,
-    TMinus,
-    TStar,
-    TLParen,
-    TRParen,
-    TLBrace,
-    TRBrace,
-    TComma,
-    TSemicolon,
-    TColon,
-    TArrow,
-    TEqEq,
-    TNeq,
-    TLt,
-    TLe,
-    TGt,
-    TGe,
-    TAndAnd,
-    TOrOr,
-    TBang,
-    TIdent(String),
-    TInt(Int),
-    TEOF,
-}
+enum Token:
+    TFn
+    TLet
+    TMut
+    TIf
+    TElse
+    TWhile
+    TReturn
+    TTrue
+    TFalse
+    TEq
+    TPlus
+    TMinus
+    TStar
+    TLParen
+    TRParen
+    TLBrace
+    TRBrace
+    TComma
+    TSemicolon
+    TColon
+    TArrow
+    TEqEq
+    TNeq
+    TLt
+    TLe
+    TGt
+    TGe
+    TAndAnd
+    TOrOr
+    TBang
+    TIdent(String)
+    TInt(Int)
+    TEOF
 
-enum Type {
-    TyInt,
-    TyBool,
-    TyUnit,
-}
+enum Type:
+    TyInt
+    TyBool
+    TyUnit
 
-enum Expr {
-    EInt(Int),
-    EBool(Bool),
-    EVar(String),
-    ECall(String, [Expr]),
-    EAdd(Expr, Expr),
-    ESub(Expr, Expr),
-    EMul(Expr, Expr),
-    EEq(Expr, Expr),
-    ENe(Expr, Expr),
-    ELt(Expr, Expr),
-    ELe(Expr, Expr),
-    EGt(Expr, Expr),
-    EGe(Expr, Expr),
-    EAnd(Expr, Expr),
-    EOr(Expr, Expr),
-    ENot(Expr),
-    ENeg(Expr),
-}
+enum Expr:
+    EInt(Int)
+    EBool(Bool)
+    EVar(String)
+    ECall(String, [Expr])
+    EAdd(Expr, Expr)
+    ESub(Expr, Expr)
+    EMul(Expr, Expr)
+    EEq(Expr, Expr)
+    ENe(Expr, Expr)
+    ELt(Expr, Expr)
+    ELe(Expr, Expr)
+    EGt(Expr, Expr)
+    EGe(Expr, Expr)
+    EAnd(Expr, Expr)
+    EOr(Expr, Expr)
+    ENot(Expr)
+    ENeg(Expr)
 
-enum Stmt {
-    SLet(String, Bool, Expr),
-    SAssign(String, Expr),
-    SPrint(Expr),
-    SIf(Expr, [Stmt], [Stmt]),
-    SWhile(Expr, [Stmt]),
-    SReturn(Expr),
-    SReturnUnit,
-    SExpr(Expr),
-}
+enum Stmt:
+    SLet(String, Bool, Expr)
+    SAssign(String, Expr)
+    SPrint(Expr)
+    SIf(Expr, [Stmt], [Stmt])
+    SWhile(Expr, [Stmt])
+    SReturn(Expr)
+    SReturnUnit
+    SExpr(Expr)
 
-struct Param { name: String, ty: Type }
-struct Fn { name: String, params: [Param], ret: Type, body: [Stmt] }
-struct ParseState { tokens: [Token], pos: Int }
-struct EmitResult { src: String, ty: Type }
-struct LocalEntry { name: String, ty: Type }
+struct Param:
+    name: String
+    ty: Type
+
+struct Fn:
+    name: String
+    params: [Param]
+    ret: Type
+    body: [Stmt]
+
+struct ParseState:
+    tokens: [Token]
+    pos: Int
+
+struct EmitResult:
+    src: String
+    ty: Type
+
+struct LocalEntry:
+    name: String
+    ty: Type
 
 // ───────────────────────── lexer ─────────────────────────
 
-fn lex(source: String) -> [Token] {
+fn lex(source: String) -> [Token]:
     let tokens = []
     let mut i = 0
     let n = len(source)
 
-    while i < n {
+    while i < n:
         let c = source[i]
 
-        if c == " " || c == "\n" || c == "\t" || c == "\r" {
+        if c == " " || c == "\n" || c == "\t" || c == "\r":
             i = i + 1
-        } else if c == "/" {
-            if i + 1 < n && source[i + 1] == "/" {
-                while i < n && source[i] != "\n" { i = i + 1 }
-            } else {
+        else if c == "/":
+            if i + 1 < n && source[i + 1] == "/":
+                while i < n && source[i] != "\n":
+                    i = i + 1
+            else:
                 panic("unexpected '/' (division not supported in stage-1.1)")
-            }
-        } else if c == "(" {
+        else if c == "(":
             push(tokens, TLParen)
             i = i + 1
-        } else if c == ")" {
+        else if c == ")":
             push(tokens, TRParen)
             i = i + 1
-        } else if c == "{" {
+        else if c == "{":
             push(tokens, TLBrace)
             i = i + 1
-        } else if c == "}" {
+        else if c == "}":
             push(tokens, TRBrace)
             i = i + 1
-        } else if c == "," {
+        else if c == ",":
             push(tokens, TComma)
             i = i + 1
-        } else if c == ";" {
+        else if c == ";":
             push(tokens, TSemicolon)
             i = i + 1
-        } else if c == ":" {
+        else if c == ":":
             push(tokens, TColon)
             i = i + 1
-        } else if c == "+" {
+        else if c == "+":
             push(tokens, TPlus)
             i = i + 1
-        } else if c == "*" {
+        else if c == "*":
             push(tokens, TStar)
             i = i + 1
-        } else if c == "-" {
-            if i + 1 < n && source[i + 1] == ">" {
+        else if c == "-":
+            if i + 1 < n && source[i + 1] == ">":
                 push(tokens, TArrow)
                 i = i + 2
-            } else {
+            else:
                 push(tokens, TMinus)
                 i = i + 1
-            }
-        } else if c == "=" {
-            if i + 1 < n && source[i + 1] == "=" {
+        else if c == "=":
+            if i + 1 < n && source[i + 1] == "=":
                 push(tokens, TEqEq)
                 i = i + 2
-            } else {
+            else:
                 push(tokens, TEq)
                 i = i + 1
-            }
-        } else if c == "!" {
-            if i + 1 < n && source[i + 1] == "=" {
+        else if c == "!":
+            if i + 1 < n && source[i + 1] == "=":
                 push(tokens, TNeq)
                 i = i + 2
-            } else {
+            else:
                 push(tokens, TBang)
                 i = i + 1
-            }
-        } else if c == "<" {
-            if i + 1 < n && source[i + 1] == "=" {
+        else if c == "<":
+            if i + 1 < n && source[i + 1] == "=":
                 push(tokens, TLe)
                 i = i + 2
-            } else {
+            else:
                 push(tokens, TLt)
                 i = i + 1
-            }
-        } else if c == ">" {
-            if i + 1 < n && source[i + 1] == "=" {
+        else if c == ">":
+            if i + 1 < n && source[i + 1] == "=":
                 push(tokens, TGe)
                 i = i + 2
-            } else {
+            else:
                 push(tokens, TGt)
                 i = i + 1
-            }
-        } else if c == "&" {
-            if i + 1 < n && source[i + 1] == "&" {
+        else if c == "&":
+            if i + 1 < n && source[i + 1] == "&":
                 push(tokens, TAndAnd)
                 i = i + 2
-            } else {
+            else:
                 panic("'&' as a borrow operator is not supported in stage-1.1")
-            }
-        } else if c == "|" {
-            if i + 1 < n && source[i + 1] == "|" {
+        else if c == "|":
+            if i + 1 < n && source[i + 1] == "|":
                 push(tokens, TOrOr)
                 i = i + 2
-            } else {
+            else:
                 panic("unexpected '|' (stage-1.1 has no pipelines yet)")
-            }
-        } else if is_digit(c) {
+        else if is_digit(c):
             let mut value = 0
-            while i < n && is_digit(source[i]) {
+            while i < n && is_digit(source[i]):
                 let d = parse_int(source[i])
                 let dv = match d { Some(v) => v, None => 0 }
                 value = value * 10 + dv
                 i = i + 1
-            }
             push(tokens, TInt(value))
-        } else if is_alpha(c) {
+        else if is_alpha(c):
             let mut text = ""
-            while i < n && is_alnum(source[i]) {
+            while i < n && is_alnum(source[i]):
                 text = text + source[i]
                 i = i + 1
-            }
-            if text == "fn" {
+            if text == "fn":
                 push(tokens, TFn)
-            } else if text == "let" {
+            else if text == "let":
                 push(tokens, TLet)
-            } else if text == "mut" {
+            else if text == "mut":
                 push(tokens, TMut)
-            } else if text == "if" {
+            else if text == "if":
                 push(tokens, TIf)
-            } else if text == "else" {
+            else if text == "else":
                 push(tokens, TElse)
-            } else if text == "while" {
+            else if text == "while":
                 push(tokens, TWhile)
-            } else if text == "return" {
+            else if text == "return":
                 push(tokens, TReturn)
-            } else if text == "true" {
+            else if text == "true":
                 push(tokens, TTrue)
-            } else if text == "false" {
+            else if text == "false":
                 push(tokens, TFalse)
-            } else {
+            else:
                 push(tokens, TIdent(text))
-            }
-        } else {
+        else:
             panic("unrecognised character in stage-1.1 lexer: " + c)
-        }
-    }
 
     push(tokens, TEOF)
     tokens
-}
 
-// ───────────────────────── parser ─────────────────────────
+// ───────────────────────── parser helpers ─────────────────────────
 
-fn peek(state: ParseState) -> Token {
+fn peek(state: ParseState) -> Token:
     state.tokens[state.pos]
-}
 
-fn advance(state: ParseState) -> Token {
+fn advance(state: ParseState) -> Token:
     let t = state.tokens[state.pos]
     state.pos = state.pos + 1
     t
-}
 
-fn expect_ident(state: ParseState) -> String {
-    match advance(state) {
-        TIdent(name) => name,
-        _            => panic("expected identifier"),
-    }
-}
+fn is_token_eq(t: Token) -> Bool:
+    match t:
+        TEq => true
+        _   => false
 
-fn expect_eq(state: ParseState) {
-    match advance(state) {
-        TEq => {},
-        _   => { panic("expected '='") },
-    }
-}
+fn is_token_lparen(t: Token) -> Bool:
+    match t:
+        TLParen => true
+        _       => false
 
-fn expect_lparen(state: ParseState) {
-    match advance(state) {
-        TLParen => {},
-        _       => { panic("expected '('") },
-    }
-}
+fn is_token_rparen(t: Token) -> Bool:
+    match t:
+        TRParen => true
+        _       => false
 
-fn expect_rparen(state: ParseState) {
-    match advance(state) {
-        TRParen => {},
-        _       => { panic("expected ')'") },
-    }
-}
+fn is_token_lbrace(t: Token) -> Bool:
+    match t:
+        TLBrace => true
+        _       => false
 
-fn expect_lbrace(state: ParseState) {
-    match advance(state) {
-        TLBrace => {},
-        _       => { panic("expected '{'") },
-    }
-}
+fn is_token_rbrace(t: Token) -> Bool:
+    match t:
+        TRBrace => true
+        _       => false
 
-fn expect_rbrace(state: ParseState) {
-    match advance(state) {
-        TRBrace => {},
-        _       => { panic("expected '}'") },
-    }
-}
+fn is_token_colon(t: Token) -> Bool:
+    match t:
+        TColon => true
+        _      => false
 
-fn expect_colon(state: ParseState) {
-    match advance(state) {
-        TColon => {},
-        _      => { panic("expected ':'") },
-    }
-}
+fn is_token_fn(t: Token) -> Bool:
+    match t:
+        TFn => true
+        _   => false
 
-fn parse_type(state: ParseState) -> Type {
-    match advance(state) {
-        TLParen => {
-            expect_rparen(state)
-            TyUnit
-        },
-        TIdent(name) => {
-            if name == "Int" {
-                TyInt
-            } else if name == "Bool" {
-                TyBool
-            } else if name == "Unit" {
-                TyUnit
-            } else {
-                panic("unsupported type in stage-1.1: " + name)
-            }
-        },
-        _ => panic("expected a type"),
-    }
-}
+fn is_token_eof(t: Token) -> Bool:
+    match t:
+        TEOF => true
+        _    => false
 
-// expression precedence climbing
+fn is_token_comma(t: Token) -> Bool:
+    match t:
+        TComma => true
+        _      => false
 
-fn parse_primary(state: ParseState) -> Expr {
-    match advance(state) {
-        TInt(n)       => EInt(n),
-        TTrue         => EBool(true),
-        TFalse        => EBool(false),
-        TBang         => ENot(parse_unary(state)),
-        TMinus        => ENeg(parse_unary(state)),
-        TLParen       => {
-            let inner = parse_expr(state)
-            expect_rparen(state)
-            inner
-        },
-        TIdent(name)  => {
-            // function call: NAME ( args )
-            match peek(state) {
-                TLParen => {
-                    advance(state)
-                    let args = []
-                    let mut first = true
-                    while true {
-                        match peek(state) {
-                            TRParen => {
-                                advance(state)
-                                return ECall(name, args)
-                            },
-                            _ => {
-                                if first {
-                                    first = false
-                                } else {
-                                    match advance(state) {
-                                        TComma => {},
-                                        _      => { panic("expected ',' or ')' in call") },
-                                    }
-                                }
-                                push(args, parse_expr(state))
-                            },
-                        }
-                    }
-                    ECall(name, args)
-                },
-                _ => EVar(name),
-            }
-        },
-        _ => panic("expected expression"),
-    }
-}
+fn is_token_semicolon(t: Token) -> Bool:
+    match t:
+        TSemicolon => true
+        _          => false
 
-fn parse_unary(state: ParseState) -> Expr {
-    match peek(state) {
-        TBang => {
+fn is_token_rbrace_or_semicolon(t: Token) -> Bool:
+    match t:
+        TRBrace    => true
+        TSemicolon => true
+        _          => false
+
+fn expect_ident(state: ParseState) -> String:
+    let t = advance(state)
+    match t:
+        TIdent(name) => name
+        _            => panic("expected identifier")
+
+fn expect_eq(state: ParseState):
+    let t = advance(state)
+    if !is_token_eq(t):
+        panic("expected '='")
+
+fn expect_lparen(state: ParseState):
+    let t = advance(state)
+    if !is_token_lparen(t):
+        panic("expected '('")
+
+fn expect_rparen(state: ParseState):
+    let t = advance(state)
+    if !is_token_rparen(t):
+        panic("expected ')'")
+
+fn expect_lbrace(state: ParseState):
+    let t = advance(state)
+    if !is_token_lbrace(t):
+        panic("expected '{'")
+
+fn expect_rbrace(state: ParseState):
+    let t = advance(state)
+    if !is_token_rbrace(t):
+        panic("expected '}'")
+
+fn expect_colon(state: ParseState):
+    let t = advance(state)
+    if !is_token_colon(t):
+        panic("expected ':'")
+
+fn skip_optional_semicolon(state: ParseState):
+    let t = peek(state)
+    if is_token_semicolon(t):
+        let tok = advance(state)
+
+// ───────────────────────── type parser ─────────────────────────
+
+fn parse_type(state: ParseState) -> Type:
+    let t = advance(state)
+    match t:
+        TLParen      => parse_type_unit(state)
+        TIdent(name) => parse_type_name(name)
+        _            => panic("expected a type")
+
+fn parse_type_unit(state: ParseState) -> Type:
+    expect_rparen(state)
+    TyUnit
+
+fn parse_type_name(name: String) -> Type:
+    if name == "Int":
+        TyInt
+    else if name == "Bool":
+        TyBool
+    else if name == "Unit":
+        TyUnit
+    else:
+        panic("unsupported type in stage-1.1: " + name)
+
+// ───────────────────────── expression parser ─────────────────────────
+
+fn parse_primary(state: ParseState) -> Expr:
+    let t = advance(state)
+    match t:
+        TInt(n)      => EInt(n)
+        TTrue        => EBool(true)
+        TFalse       => EBool(false)
+        TBang        => ENot(parse_unary(state))
+        TMinus       => ENeg(parse_unary(state))
+        TLParen      => parse_primary_paren(state)
+        TIdent(name) => parse_primary_ident(state, name)
+        _            => panic("expected expression")
+
+fn parse_primary_paren(state: ParseState) -> Expr:
+    let inner = parse_expr(state)
+    expect_rparen(state)
+    inner
+
+fn parse_primary_ident(state: ParseState, name: String) -> Expr:
+    let t = peek(state)
+    match t:
+        TLParen => parse_call(state, name)
+        _       => EVar(name)
+
+fn parse_call(state: ParseState, name: String) -> Expr:
+    advance(state)
+    let args = []
+    let mut first = true
+    let mut done = false
+    while !done:
+        let t = peek(state)
+        if is_token_rparen(t):
             advance(state)
-            ENot(parse_unary(state))
-        },
-        TMinus => {
-            advance(state)
-            ENeg(parse_unary(state))
-        },
-        _ => parse_primary(state),
-    }
-}
+            done = true
+        else:
+            if !first:
+                let sep = advance(state)
+                if !is_token_comma(sep):
+                    panic("expected ',' or ')' in call")
+            push(args, parse_expr(state))
+            first = false
+    ECall(name, args)
 
-fn parse_mul(state: ParseState) -> Expr {
+fn parse_unary(state: ParseState) -> Expr:
+    let t = peek(state)
+    match t:
+        TBang  => parse_unary_not(state)
+        TMinus => parse_unary_neg(state)
+        _      => parse_primary(state)
+
+fn parse_unary_not(state: ParseState) -> Expr:
+    advance(state)
+    ENot(parse_unary(state))
+
+fn parse_unary_neg(state: ParseState) -> Expr:
+    advance(state)
+    ENeg(parse_unary(state))
+
+fn is_token_star(t: Token) -> Bool:
+    match t:
+        TStar => true
+        _     => false
+
+fn is_token_plus(t: Token) -> Bool:
+    match t:
+        TPlus => true
+        _     => false
+
+fn is_token_minus(t: Token) -> Bool:
+    match t:
+        TMinus => true
+        _      => false
+
+fn is_token_lt(t: Token) -> Bool:
+    match t:
+        TLt => true
+        _   => false
+
+fn is_token_le(t: Token) -> Bool:
+    match t:
+        TLe => true
+        _   => false
+
+fn is_token_gt(t: Token) -> Bool:
+    match t:
+        TGt => true
+        _   => false
+
+fn is_token_ge(t: Token) -> Bool:
+    match t:
+        TGe => true
+        _   => false
+
+fn is_token_eqeq(t: Token) -> Bool:
+    match t:
+        TEqEq => true
+        _     => false
+
+fn is_token_neq(t: Token) -> Bool:
+    match t:
+        TNeq => true
+        _    => false
+
+fn is_token_andand(t: Token) -> Bool:
+    match t:
+        TAndAnd => true
+        _       => false
+
+fn is_token_oror(t: Token) -> Bool:
+    match t:
+        TOrOr => true
+        _     => false
+
+fn parse_mul(state: ParseState) -> Expr:
     let mut left = parse_unary(state)
     let mut done = false
-    while !done {
-        match peek(state) {
-            TStar => {
-                advance(state)
-                left = EMul(left, parse_unary(state))
-            },
-            _ => { done = true },
-        }
-    }
+    while !done:
+        let t = peek(state)
+        if is_token_star(t):
+            advance(state)
+            left = EMul(left, parse_unary(state))
+        else:
+            done = true
     left
-}
 
-fn parse_add(state: ParseState) -> Expr {
+fn parse_add(state: ParseState) -> Expr:
     let mut left = parse_mul(state)
     let mut done = false
-    while !done {
-        match peek(state) {
-            TPlus  => { advance(state); left = EAdd(left, parse_mul(state)) },
-            TMinus => { advance(state); left = ESub(left, parse_mul(state)) },
-            _      => { done = true },
-        }
-    }
+    while !done:
+        let t = peek(state)
+        if is_token_plus(t):
+            advance(state)
+            left = EAdd(left, parse_mul(state))
+        else if is_token_minus(t):
+            advance(state)
+            left = ESub(left, parse_mul(state))
+        else:
+            done = true
     left
-}
 
-fn parse_rel(state: ParseState) -> Expr {
+fn parse_rel(state: ParseState) -> Expr:
     let mut left = parse_add(state)
     let mut done = false
-    while !done {
-        match peek(state) {
-            TLt => { advance(state); left = ELt(left, parse_add(state)) },
-            TLe => { advance(state); left = ELe(left, parse_add(state)) },
-            TGt => { advance(state); left = EGt(left, parse_add(state)) },
-            TGe => { advance(state); left = EGe(left, parse_add(state)) },
-            _   => { done = true },
-        }
-    }
+    while !done:
+        let t = peek(state)
+        if is_token_lt(t):
+            advance(state)
+            left = ELt(left, parse_add(state))
+        else if is_token_le(t):
+            advance(state)
+            left = ELe(left, parse_add(state))
+        else if is_token_gt(t):
+            advance(state)
+            left = EGt(left, parse_add(state))
+        else if is_token_ge(t):
+            advance(state)
+            left = EGe(left, parse_add(state))
+        else:
+            done = true
     left
-}
 
-fn parse_eq(state: ParseState) -> Expr {
+fn parse_eq_expr(state: ParseState) -> Expr:
     let mut left = parse_rel(state)
     let mut done = false
-    while !done {
-        match peek(state) {
-            TEqEq => { advance(state); left = EEq(left, parse_rel(state)) },
-            TNeq  => { advance(state); left = ENe(left, parse_rel(state)) },
-            _     => { done = true },
-        }
-    }
+    while !done:
+        let t = peek(state)
+        if is_token_eqeq(t):
+            advance(state)
+            left = EEq(left, parse_rel(state))
+        else if is_token_neq(t):
+            advance(state)
+            left = ENe(left, parse_rel(state))
+        else:
+            done = true
     left
-}
 
-fn parse_and(state: ParseState) -> Expr {
-    let mut left = parse_eq(state)
+fn parse_and(state: ParseState) -> Expr:
+    let mut left = parse_eq_expr(state)
     let mut done = false
-    while !done {
-        match peek(state) {
-            TAndAnd => { advance(state); left = EAnd(left, parse_eq(state)) },
-            _       => { done = true },
-        }
-    }
+    while !done:
+        let t = peek(state)
+        if is_token_andand(t):
+            advance(state)
+            left = EAnd(left, parse_eq_expr(state))
+        else:
+            done = true
     left
-}
 
-fn parse_or(state: ParseState) -> Expr {
+fn parse_or(state: ParseState) -> Expr:
     let mut left = parse_and(state)
     let mut done = false
-    while !done {
-        match peek(state) {
-            TOrOr => { advance(state); left = EOr(left, parse_and(state)) },
-            _     => { done = true },
-        }
-    }
+    while !done:
+        let t = peek(state)
+        if is_token_oror(t):
+            advance(state)
+            left = EOr(left, parse_and(state))
+        else:
+            done = true
     left
-}
 
-fn parse_expr(state: ParseState) -> Expr {
+fn parse_expr(state: ParseState) -> Expr:
     parse_or(state)
-}
 
-fn parse_block(state: ParseState) -> [Stmt] {
+// ───────────────────────── statement parser ─────────────────────────
+
+fn parse_block(state: ParseState) -> [Stmt]:
     expect_lbrace(state)
     let stmts = []
     let mut done = false
-    while !done {
-        match peek(state) {
-            TRBrace => { advance(state); done = true },
-            _       => { push(stmts, parse_stmt(state)) },
-        }
-    }
+    while !done:
+        let t = peek(state)
+        if is_token_rbrace(t):
+            advance(state)
+            done = true
+        else:
+            push(stmts, parse_stmt(state))
     stmts
-}
 
-fn parse_stmt(state: ParseState) -> Stmt {
-    match peek(state) {
-        TLet => {
-            advance(state)
-            let is_mut = match peek(state) {
-                TMut => { advance(state); true },
-                _    => false,
-            }
-            let name = expect_ident(state)
-            expect_eq(state)
-            let value = parse_expr(state)
-            match peek(state) {
-                TSemicolon => { advance(state); },
-                _          => {},
-            }
-            SLet(name, is_mut, value)
-        },
-        TReturn => {
-            advance(state)
-            match peek(state) {
-                TRBrace    => SReturnUnit,
-                TSemicolon => { advance(state); SReturnUnit },
-                _          => {
-                    let v = parse_expr(state)
-                    match peek(state) {
-                        TSemicolon => { advance(state); },
-                        _          => {},
-                    }
-                    SReturn(v)
-                },
-            }
-        },
-        TIf => {
-            advance(state)
-            let cond = parse_expr(state)
-            let then_block = parse_block(state)
-            let else_block = match peek(state) {
-                TElse => {
-                    advance(state)
-                    parse_block(state)
-                },
-                _ => [],
-            }
-            SIf(cond, then_block, else_block)
-        },
-        TWhile => {
-            advance(state)
-            let cond = parse_expr(state)
-            let body = parse_block(state)
-            SWhile(cond, body)
-        },
-        TIdent(name) => {
-            // print(...) | NAME ( args ) | NAME = EXPR
-            advance(state)
-            if name == "print" {
-                expect_lparen(state)
-                let arg = parse_expr(state)
-                expect_rparen(state)
-                match peek(state) {
-                    TSemicolon => { advance(state); },
-                    _          => {},
-                }
-                SPrint(arg)
-            } else {
-                match peek(state) {
-                    TEq => {
-                        advance(state)
-                        let value = parse_expr(state)
-                        match peek(state) {
-                            TSemicolon => { advance(state); },
-                            _          => {},
-                        }
-                        SAssign(name, value)
-                    },
-                    TLParen => {
-                        // bare call expression statement
-                        advance(state)
-                        let args = []
-                        let mut first = true
-                        let mut done = false
-                        while !done {
-                            match peek(state) {
-                                TRParen => { advance(state); done = true },
-                                _ => {
-                                    if first {
-                                        first = false
-                                    } else {
-                                        match advance(state) {
-                                            TComma => {},
-                                            _      => { panic("expected ',' or ')'") },
-                                        }
-                                    }
-                                    push(args, parse_expr(state))
-                                },
-                            }
-                        }
-                        match peek(state) {
-                            TSemicolon => { advance(state); },
-                            _          => {},
-                        }
-                        SExpr(ECall(name, args))
-                    },
-                    _ => panic("expected '=' or '(' after identifier in statement"),
-                }
-            }
-        },
-        _ => panic("expected statement"),
-    }
-}
+fn parse_stmt(state: ParseState) -> Stmt:
+    let t = peek(state)
+    match t:
+        TLet    => parse_stmt_let(state)
+        TReturn => parse_stmt_return(state)
+        TIf     => parse_stmt_if(state)
+        TWhile  => parse_stmt_while(state)
+        TIdent(name) => parse_stmt_ident(state, name)
+        _       => panic("expected statement")
 
-fn parse_function(state: ParseState) -> Fn {
-    match advance(state) {
-        TFn => {},
-        _   => { panic("expected 'fn'") },
-    }
+fn parse_stmt_let(state: ParseState) -> Stmt:
+    advance(state)
+    let t = peek(state)
+    let is_mut = is_token_mut(t, state)
+    let name = expect_ident(state)
+    expect_eq(state)
+    let value = parse_expr(state)
+    skip_optional_semicolon(state)
+    SLet(name, is_mut, value)
+
+fn is_token_mut(t: Token, state: ParseState) -> Bool:
+    match t:
+        TMut => advance_and_true(state)
+        _    => false
+
+fn advance_and_true(state: ParseState) -> Bool:
+    advance(state)
+    true
+
+fn parse_stmt_return(state: ParseState) -> Stmt:
+    advance(state)
+    let t = peek(state)
+    if is_token_rbrace(t):
+        SReturnUnit
+    else if is_token_semicolon(t):
+        parse_stmt_return_unit_semi(state)
+    else:
+        parse_stmt_return_value(state)
+
+fn parse_stmt_return_unit_semi(state: ParseState) -> Stmt:
+    advance(state)
+    SReturnUnit
+
+fn parse_stmt_return_value(state: ParseState) -> Stmt:
+    let v = parse_expr(state)
+    skip_optional_semicolon(state)
+    SReturn(v)
+
+fn parse_stmt_if(state: ParseState) -> Stmt:
+    advance(state)
+    let cond = parse_expr(state)
+    let then_block = parse_block(state)
+    let t = peek(state)
+    let else_block = parse_else_block(state, t)
+    SIf(cond, then_block, else_block)
+
+fn parse_else_block(state: ParseState, t: Token) -> [Stmt]:
+    match t:
+        TElse => parse_else_block_body(state)
+        _     => []
+
+fn parse_else_block_body(state: ParseState) -> [Stmt]:
+    advance(state)
+    parse_block(state)
+
+fn parse_stmt_while(state: ParseState) -> Stmt:
+    advance(state)
+    let cond = parse_expr(state)
+    let body = parse_block(state)
+    SWhile(cond, body)
+
+fn parse_stmt_ident(state: ParseState, name: String) -> Stmt:
+    advance(state)
+    if name == "print":
+        parse_stmt_print(state)
+    else:
+        parse_stmt_ident_after_name(state, name)
+
+fn parse_stmt_print(state: ParseState) -> Stmt:
+    expect_lparen(state)
+    let arg = parse_expr(state)
+    expect_rparen(state)
+    skip_optional_semicolon(state)
+    SPrint(arg)
+
+fn parse_stmt_ident_after_name(state: ParseState, name: String) -> Stmt:
+    let t = peek(state)
+    match t:
+        TEq     => parse_stmt_assign(state, name)
+        TLParen => parse_stmt_call(state, name)
+        _       => panic("expected '=' or '(' after identifier in statement")
+
+fn parse_stmt_assign(state: ParseState, name: String) -> Stmt:
+    advance(state)
+    let value = parse_expr(state)
+    skip_optional_semicolon(state)
+    SAssign(name, value)
+
+fn parse_stmt_call(state: ParseState, name: String) -> Stmt:
+    advance(state)
+    let args = []
+    let mut first = true
+    let mut done = false
+    while !done:
+        let t = peek(state)
+        if is_token_rparen(t):
+            advance(state)
+            done = true
+        else:
+            if !first:
+                let sep = advance(state)
+                if !is_token_comma(sep):
+                    panic("expected ',' or ')'")
+            push(args, parse_expr(state))
+            first = false
+    skip_optional_semicolon(state)
+    SExpr(ECall(name, args))
+
+// ───────────────────────── function + program parser ─────────────────────────
+
+fn parse_function(state: ParseState) -> Fn:
+    let tfn = advance(state)
+    if !is_token_fn(tfn):
+        panic("expected 'fn'")
     let name = expect_ident(state)
     expect_lparen(state)
     let params = []
     let mut first = true
     let mut done_params = false
-    while !done_params {
-        match peek(state) {
-            TRParen => { advance(state); done_params = true },
-            _ => {
-                if first {
-                    first = false
-                } else {
-                    match advance(state) {
-                        TComma => {},
-                        _      => { panic("expected ',' or ')'") },
-                    }
-                }
-                let pname = expect_ident(state)
-                expect_colon(state)
-                let pty = parse_type(state)
-                push(params, Param { name: pname, ty: pty })
-            },
-        }
-    }
-    let ret = match peek(state) {
-        TArrow => {
+    while !done_params:
+        let t = peek(state)
+        if is_token_rparen(t):
             advance(state)
-            parse_type(state)
-        },
-        _ => TyUnit,
-    }
+            done_params = true
+        else:
+            if !first:
+                let sep = advance(state)
+                if !is_token_comma(sep):
+                    panic("expected ',' or ')'")
+            let pname = expect_ident(state)
+            expect_colon(state)
+            let pty = parse_type(state)
+            push(params, Param { name: pname, ty: pty })
+            first = false
+    let t2 = peek(state)
+    let ret = parse_fn_return(state, t2)
     let body = parse_block(state)
     Fn { name: name, params: params, ret: ret, body: body }
-}
 
-fn parse_program(tokens: [Token]) -> [Fn] {
+fn parse_fn_return(state: ParseState, t: Token) -> Type:
+    match t:
+        TArrow => parse_fn_return_type(state)
+        _      => TyUnit
+
+fn parse_fn_return_type(state: ParseState) -> Type:
+    advance(state)
+    parse_type(state)
+
+fn parse_program(tokens: [Token]) -> [Fn]:
     let state = ParseState { tokens: tokens, pos: 0 }
     let fns = []
     let mut done = false
-    while !done {
-        match peek(state) {
-            TEOF => { done = true },
-            _    => { push(fns, parse_function(state)) },
-        }
-    }
+    while !done:
+        let t = peek(state)
+        if is_token_eof(t):
+            done = true
+        else:
+            push(fns, parse_function(state))
     fns
-}
 
 // ───────────────────────── codegen ─────────────────────────
 
-fn type_to_c(t: Type) -> String {
-    match t {
-        TyInt  => "int64_t",
-        TyBool => "bool",
-        TyUnit => "void",
-    }
-}
+fn type_to_c(t: Type) -> String:
+    match t:
+        TyInt  => "int64_t"
+        TyBool => "bool"
+        TyUnit => "void"
 
-fn lookup_local(scope: [LocalEntry], name: String) -> Option[Type] {
+fn lookup_local(scope: [LocalEntry], name: String) -> Type:
     let mut i = 0
-    while i < len(scope) {
-        if scope[i].name == name {
-            return Some(scope[i].ty)
-        }
+    while i < len(scope):
+        if scope[i].name == name:
+            return scope[i].ty
         i = i + 1
-    }
-    None
-}
+    panic("unknown variable: " + name)
 
-fn lookup_fn(fns: [Fn], name: String) -> Option[Fn] {
+fn has_local(scope: [LocalEntry], name: String) -> Bool:
     let mut i = 0
-    while i < len(fns) {
-        if fns[i].name == name {
-            return Some(fns[i])
-        }
+    while i < len(scope):
+        if scope[i].name == name:
+            return true
         i = i + 1
-    }
-    None
-}
+    false
 
-fn emit_expr(e: Expr, scope: [LocalEntry], fns: [Fn]) -> EmitResult {
-    match e {
-        EInt(n) => EmitResult {
-            src: "INT64_C(" + to_string(n) + ")",
-            ty:  TyInt,
-        },
-        EBool(b) => EmitResult {
-            src: if b { "true" } else { "false" },
-            ty:  TyBool,
-        },
-        EVar(name) => {
-            let ty = match lookup_local(scope, name) {
-                Some(t) => t,
-                None    => panic("unknown variable: " + name),
-            }
-            EmitResult { src: name, ty: ty }
-        },
-        ECall(name, args) => {
-            let signature = match lookup_fn(fns, name) {
-                Some(f) => f,
-                None    => panic("unknown function: " + name),
-            }
-            let mut src = c_name_of(name) + "("
-            let mut i = 0
-            while i < len(args) {
-                if i > 0 { src = src + ", " }
-                let r = emit_expr(args[i], scope, fns)
-                src = src + r.src
-                i = i + 1
-            }
-            src = src + ")"
-            EmitResult { src: src, ty: signature.ret }
-        },
-        EAdd(l, r)  => emit_arith(l, r, "+", scope, fns),
-        ESub(l, r)  => emit_arith(l, r, "-", scope, fns),
-        EMul(l, r)  => emit_arith(l, r, "*", scope, fns),
-        EEq(l, r)   => emit_cmp(l, r, "==", scope, fns),
-        ENe(l, r)   => emit_cmp(l, r, "!=", scope, fns),
-        ELt(l, r)   => emit_cmp(l, r, "<",  scope, fns),
-        ELe(l, r)   => emit_cmp(l, r, "<=", scope, fns),
-        EGt(l, r)   => emit_cmp(l, r, ">",  scope, fns),
-        EGe(l, r)   => emit_cmp(l, r, ">=", scope, fns),
-        EAnd(l, r)  => emit_logical(l, r, "&&", scope, fns),
-        EOr(l, r)   => emit_logical(l, r, "||", scope, fns),
-        ENot(inner) => {
-            let r = emit_expr(inner, scope, fns)
-            EmitResult { src: "(!" + r.src + ")", ty: TyBool }
-        },
-        ENeg(inner) => {
-            let r = emit_expr(inner, scope, fns)
-            EmitResult { src: "(-" + r.src + ")", ty: r.ty }
-        },
-    }
-}
+fn lookup_fn(fns: [Fn], name: String) -> Fn:
+    let mut i = 0
+    while i < len(fns):
+        if fns[i].name == name:
+            return fns[i]
+        i = i + 1
+    panic("unknown function: " + name)
 
-fn emit_arith(l: Expr, r: Expr, op: String, scope: [LocalEntry], fns: [Fn]) -> EmitResult {
+fn emit_expr(e: Expr, scope: [LocalEntry], fns: [Fn]) -> EmitResult:
+    match e:
+        EInt(n)  => EmitResult { src: "INT64_C(" + to_string(n) + ")", ty: TyInt }
+        EBool(b) => emit_expr_bool(b)
+        EVar(name) => EmitResult { src: name, ty: lookup_local(scope, name) }
+        ECall(name, args) => emit_call(name, args, scope, fns)
+        EAdd(l, r)  => emit_arith(l, r, "+", scope, fns)
+        ESub(l, r)  => emit_arith(l, r, "-", scope, fns)
+        EMul(l, r)  => emit_arith(l, r, "*", scope, fns)
+        EEq(l, r)   => emit_cmp(l, r, "==", scope, fns)
+        ENe(l, r)   => emit_cmp(l, r, "!=", scope, fns)
+        ELt(l, r)   => emit_cmp(l, r, "<",  scope, fns)
+        ELe(l, r)   => emit_cmp(l, r, "<=", scope, fns)
+        EGt(l, r)   => emit_cmp(l, r, ">",  scope, fns)
+        EGe(l, r)   => emit_cmp(l, r, ">=", scope, fns)
+        EAnd(l, r)  => emit_logical(l, r, "&&", scope, fns)
+        EOr(l, r)   => emit_logical(l, r, "||", scope, fns)
+        ENot(inner) => emit_not(inner, scope, fns)
+        ENeg(inner) => emit_neg(inner, scope, fns)
+
+fn emit_expr_bool(b: Bool) -> EmitResult:
+    if b:
+        EmitResult { src: "true", ty: TyBool }
+    else:
+        EmitResult { src: "false", ty: TyBool }
+
+fn emit_call(name: String, args: [Expr], scope: [LocalEntry], fns: [Fn]) -> EmitResult:
+    let f = lookup_fn(fns, name)
+    let mut src = c_name_of(name) + "("
+    let mut i = 0
+    while i < len(args):
+        if i > 0:
+            src = src + ", "
+        let r = emit_expr(args[i], scope, fns)
+        src = src + r.src
+        i = i + 1
+    src = src + ")"
+    EmitResult { src: src, ty: f.ret }
+
+fn emit_not(inner: Expr, scope: [LocalEntry], fns: [Fn]) -> EmitResult:
+    let r = emit_expr(inner, scope, fns)
+    EmitResult { src: "(!" + r.src + ")", ty: TyBool }
+
+fn emit_neg(inner: Expr, scope: [LocalEntry], fns: [Fn]) -> EmitResult:
+    let r = emit_expr(inner, scope, fns)
+    EmitResult { src: "(-" + r.src + ")", ty: r.ty }
+
+fn emit_arith(l: Expr, r: Expr, op: String, scope: [LocalEntry], fns: [Fn]) -> EmitResult:
     let lr = emit_expr(l, scope, fns)
     let rr = emit_expr(r, scope, fns)
     EmitResult { src: "(" + lr.src + " " + op + " " + rr.src + ")", ty: TyInt }
-}
 
-fn emit_cmp(l: Expr, r: Expr, op: String, scope: [LocalEntry], fns: [Fn]) -> EmitResult {
+fn emit_cmp(l: Expr, r: Expr, op: String, scope: [LocalEntry], fns: [Fn]) -> EmitResult:
     let lr = emit_expr(l, scope, fns)
     let rr = emit_expr(r, scope, fns)
     EmitResult { src: "(" + lr.src + " " + op + " " + rr.src + ")", ty: TyBool }
-}
 
-fn emit_logical(l: Expr, r: Expr, op: String, scope: [LocalEntry], fns: [Fn]) -> EmitResult {
+fn emit_logical(l: Expr, r: Expr, op: String, scope: [LocalEntry], fns: [Fn]) -> EmitResult:
     let lr = emit_expr(l, scope, fns)
     let rr = emit_expr(r, scope, fns)
     EmitResult { src: "(" + lr.src + " " + op + " " + rr.src + ")", ty: TyBool }
-}
 
-fn indent_of(depth: Int) -> String {
+fn indent_of(depth: Int) -> String:
     let mut s = ""
     let mut i = 0
-    while i < depth {
+    while i < depth:
         s = s + "    "
         i = i + 1
-    }
     s
-}
 
-fn emit_stmt(stmt: Stmt, scope: [LocalEntry], fns: [Fn], depth: Int, ret_ty: Type) -> String {
+fn emit_stmt(stmt: Stmt, scope: [LocalEntry], fns: [Fn], depth: Int, ret_ty: Type) -> String:
     let pad = indent_of(depth)
-    match stmt {
-        SLet(name, _mutable, value) => {
-            let r = emit_expr(value, scope, fns)
-            push(scope, LocalEntry { name: name, ty: r.ty })
-            pad + type_to_c(r.ty) + " " + name + " = " + r.src + ";\n"
-        },
-        SAssign(name, value) => {
-            let r = emit_expr(value, scope, fns)
-            pad + name + " = " + r.src + ";\n"
-        },
-        SPrint(value) => {
-            let r = emit_expr(value, scope, fns)
-            let helper = match r.ty {
-                TyInt  => "mom_print_int",
-                TyBool => "mom_print_bool",
-                TyUnit => "mom_print_unit",
-            }
-            pad + helper + "(" + r.src + ");\n"
-        },
-        SIf(cond, then_stmts, else_stmts) => {
-            let cr = emit_expr(cond, scope, fns)
-            let mut out = pad + "if (" + cr.src + ") {\n"
-            out = out + emit_block(then_stmts, scope, fns, depth + 1, ret_ty)
-            if len(else_stmts) > 0 {
-                out = out + pad + "} else {\n"
-                out = out + emit_block(else_stmts, scope, fns, depth + 1, ret_ty)
-            }
-            out = out + pad + "}\n"
-            out
-        },
-        SWhile(cond, body) => {
-            let cr = emit_expr(cond, scope, fns)
-            let mut out = pad + "while (" + cr.src + ") {\n"
-            out = out + emit_block(body, scope, fns, depth + 1, ret_ty)
-            out = out + pad + "}\n"
-            out
-        },
-        SReturn(value) => {
-            let r = emit_expr(value, scope, fns)
-            pad + "return " + r.src + ";\n"
-        },
-        SReturnUnit => pad + "return;\n",
-        SExpr(value) => {
-            let r = emit_expr(value, scope, fns)
-            pad + r.src + ";\n"
-        },
-    }
-}
+    match stmt:
+        SLet(name, _mutable, value) => emit_stmt_let(pad, name, value, scope, fns)
+        SAssign(name, value)        => emit_stmt_assign(pad, name, value, scope, fns)
+        SPrint(value)               => emit_stmt_print(pad, value, scope, fns)
+        SIf(cond, then_stmts, else_stmts) => emit_stmt_if(pad, cond, then_stmts, else_stmts, scope, fns, depth, ret_ty)
+        SWhile(cond, body)          => emit_stmt_while(pad, cond, body, scope, fns, depth, ret_ty)
+        SReturn(value)              => emit_stmt_return(pad, value, scope, fns)
+        SReturnUnit                 => pad + "return;\n"
+        SExpr(value)                => emit_stmt_expr(pad, value, scope, fns)
 
-fn emit_block(stmts: [Stmt], scope: [LocalEntry], fns: [Fn], depth: Int, ret_ty: Type) -> String {
+fn emit_stmt_let(pad: String, name: String, value: Expr, scope: [LocalEntry], fns: [Fn]) -> String:
+    let r = emit_expr(value, scope, fns)
+    push(scope, LocalEntry { name: name, ty: r.ty })
+    pad + type_to_c(r.ty) + " " + name + " = " + r.src + ";\n"
+
+fn emit_stmt_assign(pad: String, name: String, value: Expr, scope: [LocalEntry], fns: [Fn]) -> String:
+    let r = emit_expr(value, scope, fns)
+    pad + name + " = " + r.src + ";\n"
+
+fn emit_stmt_print(pad: String, value: Expr, scope: [LocalEntry], fns: [Fn]) -> String:
+    let r = emit_expr(value, scope, fns)
+    let helper = print_helper(r.ty)
+    pad + helper + "(" + r.src + ");\n"
+
+fn print_helper(ty: Type) -> String:
+    match ty:
+        TyInt  => "mom_print_int"
+        TyBool => "mom_print_bool"
+        TyUnit => "mom_print_unit"
+
+fn emit_stmt_if(pad: String, cond: Expr, then_stmts: [Stmt], else_stmts: [Stmt], scope: [LocalEntry], fns: [Fn], depth: Int, ret_ty: Type) -> String:
+    let cr = emit_expr(cond, scope, fns)
+    let mut out = pad + "if (" + cr.src + ") {\n"
+    out = out + emit_block(then_stmts, scope, fns, depth + 1, ret_ty)
+    if len(else_stmts) > 0:
+        out = out + pad + "} else {\n"
+        out = out + emit_block(else_stmts, scope, fns, depth + 1, ret_ty)
+    out = out + pad + "}\n"
+    out
+
+fn emit_stmt_while(pad: String, cond: Expr, body: [Stmt], scope: [LocalEntry], fns: [Fn], depth: Int, ret_ty: Type) -> String:
+    let cr = emit_expr(cond, scope, fns)
+    let mut out = pad + "while (" + cr.src + ") {\n"
+    out = out + emit_block(body, scope, fns, depth + 1, ret_ty)
+    out = out + pad + "}\n"
+    out
+
+fn emit_stmt_return(pad: String, value: Expr, scope: [LocalEntry], fns: [Fn]) -> String:
+    let r = emit_expr(value, scope, fns)
+    pad + "return " + r.src + ";\n"
+
+fn emit_stmt_expr(pad: String, value: Expr, scope: [LocalEntry], fns: [Fn]) -> String:
+    let r = emit_expr(value, scope, fns)
+    pad + r.src + ";\n"
+
+fn emit_block(stmts: [Stmt], scope: [LocalEntry], fns: [Fn], depth: Int, ret_ty: Type) -> String:
     let mut out = ""
     let mut i = 0
-    while i < len(stmts) {
+    while i < len(stmts):
         out = out + emit_stmt(stmts[i], scope, fns, depth, ret_ty)
         i = i + 1
-    }
     out
-}
 
-fn emit_signature(f: Fn) -> String {
+fn emit_signature(f: Fn) -> String:
     let mut src = type_to_c(f.ret) + " " + c_name_of(f.name) + "("
-    if len(f.params) == 0 {
+    if len(f.params) == 0:
         src = src + "void"
-    } else {
+    else:
         let mut i = 0
-        while i < len(f.params) {
-            if i > 0 { src = src + ", " }
+        while i < len(f.params):
+            if i > 0:
+                src = src + ", "
             src = src + type_to_c(f.params[i].ty) + " " + f.params[i].name
             i = i + 1
-        }
-    }
     src = src + ")"
     src
-}
 
-fn c_name_of(name: String) -> String {
-    if name == "main" {
+fn c_name_of(name: String) -> String:
+    if name == "main":
         return "mom_main"
-    }
-    if is_c_reserved(name) {
+    if is_c_reserved(name):
         return "mom_" + name
-    }
     name
-}
 
-fn is_c_reserved(name: String) -> Bool {
-    return name == "auto"
-        || name == "break"
-        || name == "case"
-        || name == "char"
-        || name == "const"
-        || name == "continue"
-        || name == "default"
-        || name == "do"
-        || name == "double"
-        || name == "else"
-        || name == "enum"
-        || name == "extern"
-        || name == "float"
-        || name == "for"
-        || name == "goto"
-        || name == "if"
-        || name == "inline"
-        || name == "int"
-        || name == "long"
-        || name == "register"
-        || name == "restrict"
-        || name == "return"
-        || name == "short"
-        || name == "signed"
-        || name == "sizeof"
-        || name == "static"
-        || name == "struct"
-        || name == "switch"
-        || name == "typedef"
-        || name == "union"
-        || name == "unsigned"
-        || name == "void"
-        || name == "volatile"
-        || name == "while"
-}
+fn is_c_reserved(name: String) -> Bool:
+    if name == "auto":
+        return true
+    if name == "break":
+        return true
+    if name == "case":
+        return true
+    if name == "char":
+        return true
+    if name == "const":
+        return true
+    if name == "continue":
+        return true
+    if name == "default":
+        return true
+    if name == "do":
+        return true
+    if name == "double":
+        return true
+    if name == "else":
+        return true
+    if name == "enum":
+        return true
+    if name == "extern":
+        return true
+    if name == "float":
+        return true
+    if name == "for":
+        return true
+    if name == "goto":
+        return true
+    if name == "if":
+        return true
+    if name == "inline":
+        return true
+    if name == "int":
+        return true
+    if name == "long":
+        return true
+    if name == "register":
+        return true
+    if name == "restrict":
+        return true
+    if name == "return":
+        return true
+    if name == "short":
+        return true
+    if name == "signed":
+        return true
+    if name == "sizeof":
+        return true
+    if name == "static":
+        return true
+    if name == "struct":
+        return true
+    if name == "switch":
+        return true
+    if name == "typedef":
+        return true
+    if name == "union":
+        return true
+    if name == "unsigned":
+        return true
+    if name == "void":
+        return true
+    if name == "volatile":
+        return true
+    if name == "while":
+        return true
+    false
 
-fn emit_program(fns: [Fn]) -> String {
+fn emit_program(fns: [Fn]) -> String:
     let mut out = ""
     out = out + "// Generated by the stage-1.1 mom-in-mom compiler.\n"
     out = out + "#include \"runtime.h\"\n\n"
 
     // forward declarations
     let mut i = 0
-    while i < len(fns) {
+    while i < len(fns):
         out = out + emit_signature(fns[i]) + ";\n"
         i = i + 1
-    }
     out = out + "\n"
 
     // function bodies
     i = 0
-    while i < len(fns) {
+    while i < len(fns):
         let f = fns[i]
         out = out + emit_signature(f) + " {\n"
         let scope = []
         let mut p = 0
-        while p < len(f.params) {
+        while p < len(f.params):
             push(scope, LocalEntry { name: f.params[p].name, ty: f.params[p].ty })
             p = p + 1
-        }
         out = out + emit_block(f.body, scope, fns, 1, f.ret)
         out = out + "}\n\n"
         i = i + 1
-    }
     out
-}
 
 // ───────────────────────── driver ─────────────────────────
 
-fn main() {
-    let input_path = match getenv("MOM_INPUT") {
-        Some(p) => p,
-        None    => panic("set MOM_INPUT to the .mom source path"),
-    }
-    let output_path = match getenv("MOM_OUTPUT") {
-        Some(p) => p,
-        None    => panic("set MOM_OUTPUT to the .c destination path"),
-    }
+fn main():
+    let input_path = match getenv("MOM_INPUT"):
+        Some(p) => p
+        None    => panic("set MOM_INPUT to the .mom source path")
+    let output_path = match getenv("MOM_OUTPUT"):
+        Some(p) => p
+        None    => panic("set MOM_OUTPUT to the .c destination path")
 
-    let source = match read_file(input_path) {
-        Ok(s)  => s,
-        Err(e) => panic("read_file failed: " + e),
-    }
+    let source = match read_file(input_path):
+        Ok(s)  => s
+        Err(e) => panic("read_file failed: " + e)
 
     let tokens = lex(source)
     let fns    = parse_program(tokens)
     let c_src  = emit_program(fns)
 
-    match write_file(output_path, c_src) {
-        Ok(_)  => {},
-        Err(e) => { panic("write_file failed: " + e) },
-    }
-
-    eprint("stage-1.1 compiled " + input_path + " -> " + output_path)
-}
+    match write_file(output_path, c_src):
+        Ok(_)  => eprint("stage-1.1 compiled " + input_path + " -> " + output_path)
+        Err(e) => panic("write_file failed: " + e)

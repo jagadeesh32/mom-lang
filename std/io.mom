@@ -8,35 +8,29 @@
 //
 // Acceptance: build a buffer, write three lines, flush.
 
-struct LineBuffer { buf: String }
+struct LineBuffer:
+    buf: String
 
-impl LineBuffer {
-    fn writeln(self, line: String) -> LineBuffer {
+impl LineBuffer:
+    fn writeln(self, line: String) -> LineBuffer:
         LineBuffer { buf: self.buf + line + "\n" }
-    }
 
-    fn write(self, chunk: String) -> LineBuffer {
+    fn write(self, chunk: String) -> LineBuffer:
         LineBuffer { buf: self.buf + chunk }
-    }
 
-    fn flush(self) -> String {
+    fn flush(self) -> String:
         self.buf
-    }
-}
 
-fn newline() -> String {
+fn newline() -> String:
     "\n"
-}
 
-fn empty_buffer() -> LineBuffer {
+fn empty_buffer() -> LineBuffer:
     LineBuffer { buf: "" }
-}
 
-fn main() {
+fn main():
     let mut buf = empty_buffer()
     buf = buf.writeln("alpha")
     buf = buf.writeln("beta")
     buf = buf.write("gamma")
     buf = buf.write(newline())
     print(buf.flush())              // alpha\nbeta\ngamma\n  (rendered as 3 lines)
-}

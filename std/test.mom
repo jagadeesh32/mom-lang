@@ -6,55 +6,47 @@
 // The native stage-2 ships an attribute-driven test runner
 // (`#[test]`, `#[prop]`) that re-uses these helpers.
 
-struct TestStats { passed: Int, failed: Int }
+struct TestStats:
+    passed: Int
+    failed: Int
 
-impl TestStats {
-    fn pass(self) -> TestStats {
+impl TestStats:
+    fn pass(self) -> TestStats:
         TestStats { passed: self.passed + 1, failed: self.failed }
-    }
-    fn fail(self) -> TestStats {
+
+    fn fail(self) -> TestStats:
         TestStats { passed: self.passed, failed: self.failed + 1 }
-    }
-    fn summary(self) -> String {
+
+    fn summary(self) -> String:
         "passed=" + to_string(self.passed) + " failed=" + to_string(self.failed)
-    }
-}
 
-fn new_stats() -> TestStats {
+fn new_stats() -> TestStats:
     TestStats { passed: 0, failed: 0 }
-}
 
-fn assert_eq_int(stats: TestStats, actual: Int, expected: Int, label: String) -> TestStats {
-    if actual == expected {
+fn assert_eq_int(stats: TestStats, actual: Int, expected: Int, label: String) -> TestStats:
+    if actual == expected:
         print("ok    " + label)
         return stats.pass()
-    }
     print("FAIL  " + label + ": got " + to_string(actual) + ", want " + to_string(expected))
     return stats.fail()
-}
 
-fn assert_true(stats: TestStats, condition: Bool, label: String) -> TestStats {
-    if condition {
+fn assert_true(stats: TestStats, condition: Bool, label: String) -> TestStats:
+    if condition:
         print("ok    " + label)
         return stats.pass()
-    }
     print("FAIL  " + label)
     return stats.fail()
-}
 
-fn assert_false(stats: TestStats, condition: Bool, label: String) -> TestStats {
-    if condition {
+fn assert_false(stats: TestStats, condition: Bool, label: String) -> TestStats:
+    if condition:
         print("FAIL  " + label)
         return stats.fail()
-    }
     print("ok    " + label)
     return stats.pass()
-}
 
-fn main() {
+fn main():
     let mut stats = new_stats()
     stats = assert_eq_int(stats, 2 + 2, 4, "addition")
     stats = assert_true(stats, 1 < 2, "less-than")
     stats = assert_false(stats, 1 > 2, "not-greater-than")
     print(stats.summary())                  // passed=3 failed=0
-}

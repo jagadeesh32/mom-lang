@@ -10,52 +10,57 @@
 // Acceptance: exercises Mutex.lock + swap + Once.call and prints the
 // recorded values.
 
-struct Mutex { value: Int, locks: Int }
-struct Atomic { value: Int }
-struct Once { fired: Bool, value: Int }
+struct Mutex:
+    value: Int
+    locks: Int
 
-impl Mutex {
-    fn lock(self) -> Mutex {
+struct Atomic:
+    value: Int
+
+struct Once:
+    fired: Bool
+    value: Int
+
+impl Mutex:
+    fn lock(self) -> Mutex:
         // In stage-0 there is no contention; lock simply bumps the
         // counter so user code can observe how many critical sections
         // it has run through.
         Mutex { value: self.value, locks: self.locks + 1 }
-    }
 
-    fn set(self, value: Int) -> Mutex {
+    fn set(self, value: Int) -> Mutex:
         Mutex { value: value, locks: self.locks }
-    }
 
-    fn get(self) -> Int { self.value }
-}
+    fn get(self) -> Int:
+        self.value
 
-impl Atomic {
-    fn swap(self, value: Int) -> Atomic {
+impl Atomic:
+    fn swap(self, value: Int) -> Atomic:
         Atomic { value: value }
-    }
 
-    fn fetch_add(self, delta: Int) -> Atomic {
+    fn fetch_add(self, delta: Int) -> Atomic:
         Atomic { value: self.value + delta }
-    }
 
-    fn get(self) -> Int { self.value }
-}
+    fn get(self) -> Int:
+        self.value
 
-impl Once {
-    fn call(self, value: Int) -> Once {
-        if self.fired {
+impl Once:
+    fn call(self, value: Int) -> Once:
+        if self.fired:
             Once { fired: true, value: self.value }
-        } else {
+        else:
             Once { fired: true, value: value }
-        }
-    }
-}
 
-fn new_mutex(initial: Int) -> Mutex { Mutex { value: initial, locks: 0 } }
-fn new_atomic(initial: Int) -> Atomic { Atomic { value: initial } }
-fn new_once() -> Once { Once { fired: false, value: 0 } }
+fn new_mutex(initial: Int) -> Mutex:
+    Mutex { value: initial, locks: 0 }
 
-fn main() {
+fn new_atomic(initial: Int) -> Atomic:
+    Atomic { value: initial }
+
+fn new_once() -> Once:
+    Once { fired: false, value: 0 }
+
+fn main():
     let mut m = new_mutex(10)
     m = m.lock()
     m = m.set(42)
@@ -72,4 +77,3 @@ fn main() {
     o = o.call(99)
     print(o.value)           // 5 (second call ignored)
     print(o.fired)           // true
-}

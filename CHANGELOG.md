@@ -7,6 +7,28 @@ ships.
 
 ## [Unreleased]
 
+## [0.2.0] — Python-style syntax + Windows ARM
+
+### Added
+
+- **Python-style indentation syntax**: blocks are now opened with `:` and
+  delimited by INDENT/DEDENT tokens instead of `{ }`. Applies to `fn`,
+  `if`, `else`, `elif`, `while`, `for`, and `match` bodies.
+- **Dual-mode parsing**: the classic `{ }` brace syntax is still accepted
+  so existing code continues to compile without changes.
+- **Comprehensive standard library** — 60+ built-in functions covering
+  arithmetic, string manipulation, list operations, I/O, and type
+  conversion.
+- **Dict data type**: key-value map literal `{"key": value}` with
+  `dict_get`, `dict_set`, `dict_keys`, `dict_values`, `dict_contains`.
+- **Python keywords**: `and`, `or`, `not` as aliases for `&&`, `||`, `!`;
+  `elif` as an alias for `else if`; `none` as the unit/null sentinel;
+  `True` / `False` as aliases for `true` / `false`.
+- **Windows ARM build targets**: `aarch64-pc-windows-msvc` added to both
+  the CI matrix and the release pipeline; cross-compiled via `cross`.
+- **Duck typing improvements**: method dispatch now falls back to
+  structural matching when a concrete trait bound is absent.
+
 ### Stage-0 widening (cross-phase)
 
 - **Phase 1 native codegen** now handles `Float` (literals, arithmetic,
@@ -115,7 +137,7 @@ ships.
 - Channels, cancel tokens, async/await, actor syntax at interpreter
   level. See `docs/concurrency.md`.
 
-## [0.2.0] — Phase 2 memory & ownership
+## [0.2.0-pre] — Phase 2 memory & ownership
 
 - Move semantics, references, regions, borrow checker. See
   `docs/memory.md`.

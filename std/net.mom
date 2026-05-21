@@ -6,35 +6,37 @@
 // types so user code that compiles today still compiles once the
 // async runtime lands.
 
-struct Address  { host: String, port: Int }
-struct Request  { method: String, path: String }
-struct Response { status: Int, body: String }
+struct Address:
+    host: String
+    port: Int
 
-fn address(host: String, port: Int) -> Address {
+struct Request:
+    method: String
+    path: String
+
+struct Response:
+    status: Int
+    body: String
+
+fn address(host: String, port: Int) -> Address:
     Address { host: host, port: port }
-}
 
-fn pretty(addr: Address) -> String {
+fn pretty(addr: Address) -> String:
     addr.host + ":" + to_string(addr.port)
-}
 
-fn ok(body: String) -> Response {
+fn ok(body: String) -> Response:
     Response { status: 200, body: body }
-}
 
-fn not_found() -> Response {
+fn not_found() -> Response:
     Response { status: 404, body: "not found" }
-}
 
-fn dispatch(req: Request) -> Response {
-    match req.path {
-        "/health"  => ok("ok"),
-        "/version" => ok("mom 0.1.0"),
-        _          => not_found(),
-    }
-}
+fn dispatch(req: Request) -> Response:
+    match req.path:
+        "/health"  => ok("ok")
+        "/version" => ok("mom 0.1.0")
+        _          => not_found()
 
-fn main() {
+fn main():
     let addr = address("127.0.0.1", 8080)
     print(pretty(addr))                                       // 127.0.0.1:8080
 
@@ -49,4 +51,3 @@ fn main() {
     let r3 = dispatch(Request { method: "GET", path: "/missing" })
     print(r3.status)                                          // 404
     print(r3.body)                                            // not found
-}

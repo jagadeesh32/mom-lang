@@ -10,65 +10,53 @@
 // than one place along a single path. We sink each input into a
 // single concatenation site to stay within the conservative ruleset.
 
-fn repeat(s: String, times: Int) -> String {
+fn repeat(s: String, times: Int) -> String:
     let mut out = ""
     let mut i = 0
-    while i < times {
+    while i < times:
         out = out + s
         i = i + 1
-    }
     out
-}
 
-fn pad_left(s: String, width: Int, fill: String) -> String {
+fn pad_left(s: String, width: Int, fill: String) -> String:
     let needed = width - len(s)
     let prefix = if needed > 0 { repeat(fill, needed) } else { "" }
     prefix + s
-}
 
-fn pad_right(s: String, width: Int, fill: String) -> String {
+fn pad_right(s: String, width: Int, fill: String) -> String:
     let needed = width - len(s)
     let suffix = if needed > 0 { repeat(fill, needed) } else { "" }
     s + suffix
-}
 
-fn join(items: [String], sep: String) -> String {
+fn join(items: [String], sep: String) -> String:
     let mut out = ""
     let mut i = 0
     let n = len(items)
-    while i < n {
-        if i > 0 {
+    while i < n:
+        if i > 0:
             out = out + sep
-        }
         out = out + items[i]
         i = i + 1
-    }
     out
-}
 
-fn join_ints(items: [Int], sep: String) -> String {
+fn join_ints(items: [Int], sep: String) -> String:
     let mut out = ""
     let mut i = 0
     let n = len(items)
-    while i < n {
-        if i > 0 {
+    while i < n:
+        if i > 0:
             out = out + sep
-        }
         out = out + to_string(items[i])
         i = i + 1
-    }
     out
-}
 
-fn key_value(key: String, value: String) -> String {
+fn key_value(key: String, value: String) -> String:
     key + "=" + value
-}
 
-fn bracket(inner: String) -> String {
+fn bracket(inner: String) -> String:
     "[" + inner + "]"
-}
 
-fn main() {
+fn main():
     print(repeat("ab", 3))                              // ababab
     print(pad_left("7", 4, "0"))                        // 0007
     print(pad_right("hi", 5, "."))                      // hi...
@@ -76,4 +64,3 @@ fn main() {
     print(join_ints([1, 2, 3, 4], "-"))                 // 1-2-3-4
     print(key_value("user", "alice"))                   // user=alice
     print(bracket(join(["one", "two"], "|")))           // [one|two]
-}

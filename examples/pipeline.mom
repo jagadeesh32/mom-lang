@@ -1,12 +1,14 @@
 // pipeline.mom — left-to-right data flow with `|>`.
 
-fn inc(x: Int) -> Int    { x + 1 }
-fn double(x: Int) -> Int { x * 2 }
+fn inc(x: Int) -> Int:
+    x + 1
 
-fn main() {
+fn double(x: Int) -> Int:
+    x * 2
+
+fn main():
     let square = fn(x: Int) => x * x
     let value = 20 |> inc |> double      // (20 + 1) * 2 = 42
 
     print(value)
     print(square(7))
-}

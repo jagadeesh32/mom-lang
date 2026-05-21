@@ -5,47 +5,45 @@
 // surface is identical: Level enum, level-comparison, and a `Logger`
 // struct that stamps each line with its level prefix.
 
-enum Level { Trace, Debug, Info, Warn, Error }
+enum Level:
+    Trace
+    Debug
+    Info
+    Warn
+    Error
 
-fn level_rank(level: Level) -> Int {
-    match level {
-        Trace => 0,
-        Debug => 1,
-        Info  => 2,
-        Warn  => 3,
-        Error => 4,
-    }
-}
+fn level_rank(level: Level) -> Int:
+    match level:
+        Trace => 0
+        Debug => 1
+        Info  => 2
+        Warn  => 3
+        Error => 4
 
-fn level_label(level: Level) -> String {
-    match level {
-        Trace => "TRACE",
-        Debug => "DEBUG",
-        Info  => "INFO",
-        Warn  => "WARN",
-        Error => "ERROR",
-    }
-}
+fn level_label(level: Level) -> String:
+    match level:
+        Trace => "TRACE"
+        Debug => "DEBUG"
+        Info  => "INFO"
+        Warn  => "WARN"
+        Error => "ERROR"
 
-struct Logger { min_rank: Int }
+struct Logger:
+    min_rank: Int
 
-impl Logger {
-    fn at(self, level: Level, message: String) -> Logger {
+impl Logger:
+    fn at(self, level: Level, message: String) -> Logger:
         let rank = level_rank(level)
         let allow = rank >= self.min_rank
         let stamp = level_label(level)
-        if allow {
+        if allow:
             print(stamp + " " + message)
-        }
         Logger { min_rank: self.min_rank }
-    }
-}
 
-fn logger_for(min: Level) -> Logger {
+fn logger_for(min: Level) -> Logger:
     Logger { min_rank: level_rank(min) }
-}
 
-fn main() {
+fn main():
     let mut log = logger_for(Info)
     log = log.at(Trace, "ignored")        // below threshold
     log = log.at(Debug, "ignored")        // below threshold
@@ -53,4 +51,3 @@ fn main() {
     log = log.at(Warn,  "watch out")      // WARN  watch out
     log = log.at(Error, "exploded")       // ERROR exploded
     print(log.min_rank)                   // 2
-}

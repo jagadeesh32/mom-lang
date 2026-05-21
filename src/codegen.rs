@@ -548,7 +548,8 @@ impl Codegen {
                 "native codegen does not yet support lambdas",
                 span,
             )),
-            Expr::List(_, span)
+            Expr::Dict(_, span)
+            | Expr::List(_, span)
             | Expr::Index { span, .. }
             | Expr::Field { span, .. }
             | Expr::MethodCall { span, .. }

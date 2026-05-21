@@ -101,7 +101,7 @@ impl TypeChecker {
     pub fn new() -> Self {
         let mut known_types = HashSet::new();
         for builtin in [
-            "Int", "Float", "Bool", "String", "Option", "Result", "List", "Task", "Future",
+            "Int", "Float", "Bool", "String", "Option", "Result", "List", "Dict", "Task", "Future",
             "Box", "Rc", "Arc", "Weak", "Cell", "RefCell", "Mutex", "RwLock", "Atomic",
             "Channel", "Cancel", "Duration", "Instant",
         ] {
@@ -472,22 +472,24 @@ impl TypeChecker {
                 }
                 if matches!(
                     name.as_str(),
-                    "print"
-                        | "println"
-                        | "len"
-                        | "push"
-                        | "to_string"
-                        | "read_file"
-                        | "write_file"
-                        | "args"
-                        | "getenv"
-                        | "eprint"
-                        | "panic"
-                        | "is_digit"
-                        | "is_alpha"
-                        | "is_alnum"
-                        | "parse_int"
-                        | "string_eq"
+                    "print" | "println" | "eprint" | "input"
+                    | "len" | "push" | "pop" | "insert" | "remove"
+                    | "reverse" | "sort" | "sorted" | "reversed"
+                    | "sum" | "any" | "all" | "map" | "filter" | "reduce"
+                    | "enumerate" | "zip" | "range"
+                    | "split" | "join" | "upper" | "lower" | "strip"
+                    | "lstrip" | "rstrip" | "starts_with" | "ends_with"
+                    | "contains" | "find" | "replace" | "chars"
+                    | "str" | "int" | "float" | "bool"
+                    | "abs" | "min" | "max" | "pow" | "round" | "floor"
+                    | "ceil" | "sqrt" | "hex" | "oct" | "bin" | "ord" | "chr"
+                    | "divmod" | "type_of" | "is_int" | "is_float"
+                    | "is_string" | "is_bool" | "is_list" | "is_dict" | "is_none"
+                    | "assert" | "exit" | "dict"
+                    | "to_string" | "read_file" | "write_file"
+                    | "args" | "getenv" | "panic"
+                    | "is_digit" | "is_alpha" | "is_alnum" | "parse_int"
+                    | "string_eq" | "none" | "null"
                 ) {
                     return Ok(Type::Function(vec![Type::Unknown], Box::new(Type::Unknown)));
                 }
@@ -663,6 +665,13 @@ impl TypeChecker {
             }
             Expr::Region { body, .. } => Ok(self.check_block(body)?.value_type),
             Expr::Block(block) => Ok(self.check_block(block)?.value_type),
+            Expr::Dict(pairs, _) => {
+                for (k, v) in pairs {
+                    self.check_expr(k)?;
+                    self.check_expr(v)?;
+                }
+                Ok(Type::Named("Dict".to_string()))
+            }
         }
     }
 
@@ -676,9 +685,14 @@ impl TypeChecker {
         let left_ty = self.check_expr(left)?;
         let right_ty = self.check_expr(right)?;
 
+        // Duck typing: if either side is Unknown, accept and return Unknown.
+        if left_ty == Type::Unknown || right_ty == Type::Unknown {
+            return Ok(Type::Unknown);
+        }
+
         match op {
             BinaryOp::Add => {
-                if left_ty == Type::String && right_ty == Type::String {
+                if left_ty == Type::String || right_ty == Type::String {
                     return Ok(Type::String);
                 }
                 self.expect_same_numeric(&left_ty, &right_ty, span)
@@ -687,7 +701,6 @@ impl TypeChecker {
                 self.expect_same_numeric(&left_ty, &right_ty, span)
             }
             BinaryOp::Equal | BinaryOp::NotEqual => {
-                self.expect_assignable(&left_ty, &right_ty, span)?;
                 Ok(Type::Bool)
             }
             BinaryOp::Less | BinaryOp::LessEqual | BinaryOp::Greater | BinaryOp::GreaterEqual => {
@@ -695,8 +708,6 @@ impl TypeChecker {
                 Ok(Type::Bool)
             }
             BinaryOp::And | BinaryOp::Or => {
-                self.expect_assignable(&Type::Bool, &left_ty, span)?;
-                self.expect_assignable(&Type::Bool, &right_ty, span)?;
                 Ok(Type::Bool)
             }
         }

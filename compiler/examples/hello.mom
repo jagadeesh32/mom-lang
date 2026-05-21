@@ -1,0 +1,7 @@
+// hello.mom — stage-1 demo: print a string literal.
+// Expected output: hello from stage-1!
+//
+// Requires: stage-1 compiler with string literal + println support.
+
+fn main():
+    println("hello from stage-1!")

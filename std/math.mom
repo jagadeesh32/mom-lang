@@ -5,87 +5,76 @@
 // CSPRNG; this stage-0 module covers the deterministic integer
 // surface that user code can already rely on today.
 
-fn gcd(a: Int, b: Int) -> Int {
+fn gcd(a: Int, b: Int) -> Int:
     let mut x = if a < 0 { -a } else { a }
     let mut y = if b < 0 { -b } else { b }
-    while y != 0 {
+    while y != 0:
         let t = x % y
         x = y
         y = t
-    }
     x
-}
 
-fn lcm(a: Int, b: Int) -> Int {
+fn lcm(a: Int, b: Int) -> Int:
     if a == 0 { return 0 }
     if b == 0 { return 0 }
     let g = gcd(a, b)
     return (a / g) * b
-}
 
-fn pow_int(base: Int, exponent: Int) -> Int {
+fn pow_int(base: Int, exponent: Int) -> Int:
     let mut result = 1
     let mut b = base
     let mut e = exponent
-    while e > 0 {
-        if e % 2 == 1 {
+    while e > 0:
+        if e % 2 == 1:
             result = result * b
-        }
         b = b * b
         e = e / 2
-    }
     result
-}
 
-fn factorial(n: Int) -> Int {
+fn factorial(n: Int) -> Int:
     let mut acc = 1
     let mut i = 2
-    while i <= n {
+    while i <= n:
         acc = acc * i
         i = i + 1
-    }
     acc
-}
 
-fn fib(n: Int) -> Int {
+fn fib(n: Int) -> Int:
     let mut a = 0
     let mut b = 1
     let mut i = 0
-    while i < n {
+    while i < n:
         let t = a + b
         a = b
         b = t
         i = i + 1
-    }
     a
-}
 
 // Lehmer LCG. Identical multiplier/modulus to MINSTD; gives a
 // 31-bit stream of decent quality for non-crypto use.
 
-struct Rng { state: Int }
+struct Rng:
+    state: Int
 
-impl Rng {
-    fn next(self) -> Rng {
+impl Rng:
+    fn next(self) -> Rng:
         let m = 2147483647
         let a = 48271
         Rng { state: (self.state * a) % m }
-    }
 
-    fn value(self) -> Int { self.state }
+    fn value(self) -> Int:
+        self.state
 
-    fn range(self, modulus: Int) -> Int { self.state % modulus }
-}
+    fn range(self, modulus: Int) -> Int:
+        self.state % modulus
 
-fn rng_seeded(seed: Int) -> Rng {
-    if seed <= 0 {
+fn rng_seeded(seed: Int) -> Rng:
+    if seed <= 0:
         Rng { state: 1 }
-    } else {
+    else:
         Rng { state: seed }
-    }
-}
 
-fn main() {
+fn main():
     print(gcd(54, 24))          // 6
     print(lcm(4, 6))            // 12
     print(pow_int(2, 10))       // 1024
@@ -99,4 +88,3 @@ fn main() {
     let second = r.value()
     print(first != second)      // true (deterministic but distinct)
     print(r.range(100) >= 0)    // true
-}

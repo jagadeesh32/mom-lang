@@ -547,6 +547,12 @@ fn expr_inline(expr: &Expr) -> String {
             format!("region {name} {}", block_inline(body))
         }
         Expr::Block(block) => block_inline(block),
+        Expr::Dict(pairs, _) => {
+            let entries: Vec<String> = pairs.iter()
+                .map(|(k, v)| format!("{}: {}", expr_inline(k), expr_inline(v)))
+                .collect();
+            format!("{{{}}}", entries.join(", "))
+        }
     }
 }
 

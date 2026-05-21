@@ -6,51 +6,41 @@
 // user code can already build today: Bool, Int, String, and lists
 // of each.
 
-fn encode_bool(value: Bool) -> String {
+fn encode_bool(value: Bool) -> String:
     if value { "true" } else { "false" }
-}
 
-fn encode_int(value: Int) -> String {
+fn encode_int(value: Int) -> String:
     to_string(value)
-}
 
-fn encode_string(value: String) -> String {
+fn encode_string(value: String) -> String:
     "\"" + value + "\""
-}
 
-fn encode_int_list(values: [Int]) -> String {
+fn encode_int_list(values: [Int]) -> String:
     let mut out = "["
     let mut i = 0
     let n = len(values)
-    while i < n {
-        if i > 0 {
+    while i < n:
+        if i > 0:
             out = out + ","
-        }
         out = out + encode_int(values[i])
         i = i + 1
-    }
     out + "]"
-}
 
-fn encode_string_list(values: [String]) -> String {
+fn encode_string_list(values: [String]) -> String:
     let mut out = "["
     let mut i = 0
     let n = len(values)
-    while i < n {
-        if i > 0 {
+    while i < n:
+        if i > 0:
             out = out + ","
-        }
         out = out + encode_string(values[i])
         i = i + 1
-    }
     out + "]"
-}
 
-fn encode_kv(key: String, value: String) -> String {
+fn encode_kv(key: String, value: String) -> String:
     encode_string(key) + ":" + value
-}
 
-fn main() {
+fn main():
     print(encode_bool(true))                                // true
     print(encode_bool(false))                               // false
     print(encode_int(-7))                                   // -7
@@ -58,4 +48,3 @@ fn main() {
     print(encode_int_list([1, 2, 3]))                       // [1,2,3]
     print(encode_string_list(["a", "b"]))                   // ["a","b"]
     print(encode_kv("name", encode_string("mom")))          // "name":"mom"
-}

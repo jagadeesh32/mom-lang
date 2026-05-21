@@ -290,6 +290,8 @@ pub enum Expr {
         span: Span,
     },
     Block(Block),
+    // Python-style dict literal: { key: value, ... }
+    Dict(Vec<(Expr, Expr)>, Span),
 }
 
 impl Expr {
@@ -303,6 +305,7 @@ impl Expr {
             | Expr::Ident(_, span)
             | Expr::Path(_, span)
             | Expr::List(_, span)
+            | Expr::Dict(_, span)
             | Expr::Range { span, .. }
             | Expr::Unary { span, .. }
             | Expr::Binary { span, .. }

@@ -13,74 +13,65 @@
 //   * hex_byte(byte)     — 2-char hex of a 0..=255 byte
 //   * hex_int(value)     — 8-char zero-padded hex of a 32-bit int
 
-fn adler32(bytes: [Int]) -> Int {
+fn adler32(bytes: [Int]) -> Int:
     let modulus = 65521
     let mut a = 1
     let mut b = 0
     let mut i = 0
     let n = len(bytes)
-    while i < n {
+    while i < n:
         a = (a + bytes[i]) % modulus
         b = (b + a) % modulus
         i = i + 1
-    }
     b * 65536 + a
-}
 
-fn poly_hash(bytes: [Int]) -> Int {
+fn poly_hash(bytes: [Int]) -> Int:
     let prime = 131
     let modulus = 1000000007
     let mut h = 0
     let mut i = 0
     let n = len(bytes)
-    while i < n {
+    while i < n:
         h = (h * prime + bytes[i]) % modulus
         i = i + 1
-    }
     h
-}
 
-fn hex_digit(nibble: Int) -> String {
-    match nibble {
-        0  => "0",
-        1  => "1",
-        2  => "2",
-        3  => "3",
-        4  => "4",
-        5  => "5",
-        6  => "6",
-        7  => "7",
-        8  => "8",
-        9  => "9",
-        10 => "a",
-        11 => "b",
-        12 => "c",
-        13 => "d",
-        14 => "e",
-        _  => "f",
-    }
-}
+fn hex_digit(nibble: Int) -> String:
+    match nibble:
+        0  => "0"
+        1  => "1"
+        2  => "2"
+        3  => "3"
+        4  => "4"
+        5  => "5"
+        6  => "6"
+        7  => "7"
+        8  => "8"
+        9  => "9"
+        10 => "a"
+        11 => "b"
+        12 => "c"
+        13 => "d"
+        14 => "e"
+        _  => "f"
 
-fn hex_byte(byte: Int) -> String {
+fn hex_byte(byte: Int) -> String:
     let high = byte / 16
     let low = byte % 16
     hex_digit(high) + hex_digit(low)
-}
 
-fn hex_int(value: Int) -> String {
+fn hex_int(value: Int) -> String:
     let mut out = ""
     let mut v = value
     let mut i = 0
-    while i < 8 {
+    while i < 8:
         let nibble = v % 16
         out = hex_digit(nibble) + out
         v = v / 16
         i = i + 1
-    }
     out
-}
 
-fn main() {
+fn main():
     // "abc" -> [97, 98, 99]; Adler-32 of "abc" is 0x024d0127 = 38600999.
     let abc = [97, 98, 99]
     print(adler32(abc))                // 38600999
@@ -98,4 +89,3 @@ fn main() {
     print(hex_byte(0))                 // 00
     print(hex_byte(171))               // ab
     print(hex_int(305419896))          // 12345678
-}

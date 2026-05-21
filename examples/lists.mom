@@ -1,22 +1,18 @@
 // lists.mom — list literals, indexing, iteration with `for`.
 
-fn sum(xs: [Int]) -> Int {
+fn sum(xs: [Int]) -> Int:
     let mut total = 0
-    for x in xs {
+    for x in xs:
         total = total + x
-    }
     total
-}
 
-fn main() {
+fn main():
     let xs = [1, 2, 3, 4, 5]
     print(sum(xs))
     print(xs[0])
     print(xs[len(xs) - 1])
 
     let mut squares = []
-    for i in 0..5 {
+    for i in 0..5:
         push(squares, i * i)
-    }
     print(squares)
-}

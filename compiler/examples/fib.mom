@@ -1,12 +1,9 @@
 // fib.mom — stage-1.1 demo: recursion, if/else, function calls.
 
-fn fib(n: Int) -> Int {
-    if n <= 1 {
+fn fib(n: Int) -> Int:
+    if n <= 1:
         return n
-    }
     return fib(n - 1) + fib(n - 2)
-}
 
-fn main() {
+fn main():
     print(fib(10))
-}

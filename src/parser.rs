@@ -15,17 +15,21 @@ impl Parser {
     pub fn parse_program(&mut self) -> LangResult<Program> {
         let mut items = Vec::new();
         while !self.is_at_end() {
+            self.skip_indent_tokens();
+            if self.is_at_end() {
+                break;
+            }
             self.parse_top_level_into(&mut items)?;
         }
         Ok(Program { items })
     }
 
-    /// Parse one syntactic unit and push the resulting item(s) onto the
-    /// program. Most cases push exactly one item; `actor` sugar pushes
-    /// a `struct` + an `impl` block.
     fn parse_top_level_into(&mut self, items: &mut Vec<Item>) -> LangResult<()> {
         let attrs = self.parse_outer_attrs()?;
+        // Attributes may be on their own line(s); skip whitespace before the item.
+        self.skip_indent_tokens();
         let is_pub = self.match_keyword(Keyword::Pub);
+        self.skip_newlines();
 
         if self.check_keyword(Keyword::Actor) {
             if !attrs.is_empty() {
@@ -35,6 +39,7 @@ impl Parser {
                 ));
             }
             self.parse_actor_sugar(items, is_pub)?;
+            self.skip_indent_tokens();
             return Ok(());
         }
 
@@ -44,6 +49,7 @@ impl Parser {
             items.push(Item::Function(
                 self.parse_function_with_attrs(is_pub, is_async, attrs)?,
             ));
+            self.skip_indent_tokens();
             return Ok(());
         }
         if !attrs.is_empty() {
@@ -60,108 +66,116 @@ impl Parser {
         }
         if self.check_keyword(Keyword::Struct) {
             items.push(Item::Struct(self.parse_struct(is_pub)?));
+            self.skip_indent_tokens();
             return Ok(());
         }
         if self.check_keyword(Keyword::Enum) {
             items.push(Item::Enum(self.parse_enum(is_pub)?));
+            self.skip_indent_tokens();
             return Ok(());
         }
         if self.check_keyword(Keyword::Const) {
             items.push(Item::Const(self.parse_const_decl(is_pub)?));
+            self.skip_indent_tokens();
             return Ok(());
         }
         if self.check_keyword(Keyword::Module) {
             items.push(Item::Module(self.parse_module(is_pub)?));
+            self.skip_indent_tokens();
             return Ok(());
         }
         if self.check_keyword(Keyword::Import) || self.check_keyword(Keyword::Use) {
             items.push(Item::Import(self.parse_import()?));
+            self.skip_indent_tokens();
             return Ok(());
         }
         if self.check_keyword(Keyword::Trait) {
             items.push(Item::Trait(self.parse_trait(is_pub)?));
+            self.skip_indent_tokens();
             return Ok(());
         }
         if self.check_keyword(Keyword::Impl) {
             items.push(Item::Impl(self.parse_impl()?));
+            self.skip_indent_tokens();
             return Ok(());
         }
         if self.check_keyword(Keyword::Extern) {
             items.push(Item::Extern(self.parse_extern()?));
+            self.skip_indent_tokens();
             return Ok(());
         }
 
         items.push(Item::Statement(self.parse_statement()?));
+        self.skip_indent_tokens();
         Ok(())
     }
 
-    /// Desugar:
-    ///   actor Name {
-    ///       state f1: T1, state f2: T2,
-    ///       receive { Msg1 => body1, Msg2(x) => body2, ... }
-    ///   }
-    /// into:
-    ///   struct Name { f1: T1, f2: T2 }
-    ///   impl Name { fn step(self, msg: _) -> Name { match msg { … } } }
+    // ── Actor sugar ───────────────────────────────────────────────────────────
+
     fn parse_actor_sugar(&mut self, items: &mut Vec<Item>, is_pub: bool) -> LangResult<()> {
         let span = self.expect_keyword(Keyword::Actor, "expected 'actor'")?;
         let name = self.expect_ident("expected actor name")?;
-        self.expect_kind(&TokenKind::LeftBrace, "expected '{' to open actor")?;
 
         let mut fields: Vec<Field> = Vec::new();
         let mut receive_arms: Vec<MatchArm> = Vec::new();
         let mut saw_receive = false;
 
-        while !self.check_kind(&TokenKind::RightBrace) && !self.is_at_end() {
-            if self.match_keyword(Keyword::Receive) {
-                saw_receive = true;
-                self.expect_kind(&TokenKind::LeftBrace, "expected '{' before receive arms")?;
-                while !self.check_kind(&TokenKind::RightBrace) && !self.is_at_end() {
-                    let arm_span = self.peek().span.clone();
-                    let pattern = self.parse_pattern()?;
-                    self.expect_kind(&TokenKind::FatArrow, "expected '=>' in receive arm")?;
-                    let body = self.parse_expression(0)?;
-                    receive_arms.push(MatchArm {
-                        pattern,
-                        body,
-                        span: arm_span,
-                    });
-                    if !self.match_kind(&TokenKind::Comma) {
-                        break;
-                    }
+        // Both old `{ }` and new `:` + indent styles
+        if self.match_kind(&TokenKind::LeftBrace) {
+            // Old brace style
+            self.skip_indent_tokens();
+            while !self.check_kind(&TokenKind::RightBrace) && !self.is_at_end() {
+                if self.match_keyword(Keyword::Receive) {
+                    saw_receive = true;
+                    receive_arms = self.parse_receive_arms_brace()?;
+                    self.skip_indent_tokens();
+                    continue;
                 }
-                self.expect_kind(&TokenKind::RightBrace, "expected '}' after receive arms")?;
-                continue;
-            }
-
-            // state declaration: `state IDENT : TYPE`
-            let state_ident = self.expect_ident("expected 'state' or 'receive' in actor body")?;
-            if state_ident != "state" {
-                return Err(Diagnostic::new(
-                    format!("expected 'state' or 'receive', got '{state_ident}'"),
-                    self.previous().span.clone(),
-                ));
-            }
-            let field_name = self.expect_ident("expected field name after 'state'")?;
-            self.expect_kind(&TokenKind::Colon, "expected ':' after field name")?;
-            let ty = self.parse_type_ref()?;
-            fields.push(Field {
-                name: field_name,
-                ty,
-            });
-            if !self.match_kind(&TokenKind::Comma) && !self.check_kind(&TokenKind::RightBrace) {
-                // require comma or end of actor body
-                if !self.check_keyword(Keyword::Receive)
-                    && !matches!(self.peek().kind, TokenKind::Ident(_))
-                {
-                    break;
+                let state_ident = self.expect_ident("expected 'state' or 'receive' in actor body")?;
+                if state_ident != "state" {
+                    return Err(Diagnostic::new(
+                        format!("expected 'state' or 'receive', got '{state_ident}'"),
+                        self.previous().span.clone(),
+                    ));
                 }
+                let field_name = self.expect_ident("expected field name after 'state'")?;
+                self.expect_kind(&TokenKind::Colon, "expected ':' after field name")?;
+                let ty = self.parse_type_ref()?;
+                fields.push(Field { name: field_name, ty });
+                self.match_kind(&TokenKind::Comma);
+                self.skip_indent_tokens();
             }
+            self.expect_kind(&TokenKind::RightBrace, "expected '}' to close actor")?;
+        } else {
+            // New indent style
+            self.expect_kind(&TokenKind::Colon, "expected ':' or '{' after actor name")?;
+            self.match_kind(&TokenKind::Newline);
+            self.expect_kind(&TokenKind::Indent, "expected indented actor body")?;
+            while !self.check_kind(&TokenKind::Dedent) && !self.is_at_end() {
+                self.skip_newlines();
+                if self.check_kind(&TokenKind::Dedent) { break; }
+                if self.match_keyword(Keyword::Receive) {
+                    saw_receive = true;
+                    receive_arms = self.parse_receive_arms_indent()?;
+                    self.match_kind(&TokenKind::Newline);
+                    continue;
+                }
+                let state_ident = self.expect_ident("expected 'state' or 'receive' in actor body")?;
+                if state_ident != "state" {
+                    return Err(Diagnostic::new(
+                        format!("expected 'state' or 'receive', got '{state_ident}'"),
+                        self.previous().span.clone(),
+                    ));
+                }
+                let field_name = self.expect_ident("expected field name after 'state'")?;
+                self.expect_kind(&TokenKind::Colon, "expected ':' after field name")?;
+                let ty = self.parse_type_ref()?;
+                fields.push(Field { name: field_name, ty });
+                self.match_kind(&TokenKind::Newline);
+            }
+            self.match_kind(&TokenKind::Dedent);
         }
 
-        self.expect_kind(&TokenKind::RightBrace, "expected '}' to close actor")?;
-
-        // Emit the struct
         items.push(Item::Struct(StructDecl {
             name: name.clone(),
             generics: Vec::new(),
@@ -170,7 +184,6 @@ impl Parser {
             span: span.clone(),
         }));
 
-        // Emit the impl block with `step` method, if a receive block existed.
         if saw_receive {
             let step_body = Block {
                 statements: vec![Stmt::Expr {
@@ -188,14 +201,8 @@ impl Parser {
                 name: "step".to_string(),
                 generics: Vec::new(),
                 params: vec![
-                    Param {
-                        name: "self".to_string(),
-                        ty: TypeRef::Infer,
-                    },
-                    Param {
-                        name: "msg".to_string(),
-                        ty: TypeRef::Infer,
-                    },
+                    Param { name: "self".to_string(), ty: TypeRef::Infer },
+                    Param { name: "msg".to_string(), ty: TypeRef::Infer },
                 ],
                 return_type: TypeRef::Named(name.clone()),
                 body: step_body,
@@ -212,9 +219,46 @@ impl Parser {
                 span,
             }));
         }
-
         Ok(())
     }
+
+    fn parse_receive_arms_brace(&mut self) -> LangResult<Vec<MatchArm>> {
+        self.expect_kind(&TokenKind::LeftBrace, "expected '{' before receive arms")?;
+        let mut arms = Vec::new();
+        self.skip_indent_tokens();
+        while !self.check_kind(&TokenKind::RightBrace) && !self.is_at_end() {
+            let arm_span = self.peek().span.clone();
+            let pattern = self.parse_pattern()?;
+            self.expect_kind(&TokenKind::FatArrow, "expected '=>' in receive arm")?;
+            let body = self.parse_expression(0)?;
+            arms.push(MatchArm { pattern, body, span: arm_span });
+            self.match_kind(&TokenKind::Comma);
+            self.skip_indent_tokens();
+        }
+        self.expect_kind(&TokenKind::RightBrace, "expected '}' after receive arms")?;
+        Ok(arms)
+    }
+
+    fn parse_receive_arms_indent(&mut self) -> LangResult<Vec<MatchArm>> {
+        self.expect_kind(&TokenKind::Colon, "expected ':' before receive arms")?;
+        self.match_kind(&TokenKind::Newline);
+        self.expect_kind(&TokenKind::Indent, "expected indented receive arms")?;
+        let mut arms = Vec::new();
+        while !self.check_kind(&TokenKind::Dedent) && !self.is_at_end() {
+            self.skip_newlines();
+            if self.check_kind(&TokenKind::Dedent) { break; }
+            let arm_span = self.peek().span.clone();
+            let pattern = self.parse_pattern()?;
+            self.expect_kind(&TokenKind::FatArrow, "expected '=>' in receive arm")?;
+            let body = self.parse_expression(0)?;
+            arms.push(MatchArm { pattern, body, span: arm_span });
+            self.match_kind(&TokenKind::Newline);
+        }
+        self.match_kind(&TokenKind::Dedent);
+        Ok(arms)
+    }
+
+    // ── Function ──────────────────────────────────────────────────────────────
 
     fn parse_function(&mut self, is_pub: bool, is_async: bool) -> LangResult<FunctionDecl> {
         self.parse_function_with_attrs(is_pub, is_async, Vec::new())
@@ -235,10 +279,8 @@ impl Parser {
         } else {
             TypeRef::Unit
         };
-        // optional `where` clauses — parsed but ignored in MVP
         self.skip_where_clauses()?;
         let body = self.parse_block()?;
-
         Ok(FunctionDecl {
             name,
             generics,
@@ -252,9 +294,6 @@ impl Parser {
         })
     }
 
-    /// Consume zero or more `#[ident]` outer attributes. Returns the
-    /// collected names in source order. Currently accepts only the
-    /// `#[ident]` form; `#[ident(args)]` will land in Phase 5.2.
     fn parse_outer_attrs(&mut self) -> LangResult<Vec<String>> {
         let mut attrs = Vec::new();
         while self.check_kind(&TokenKind::Hash) {
@@ -270,22 +309,20 @@ impl Parser {
     fn parse_params(&mut self) -> LangResult<Vec<Param>> {
         self.expect_kind(&TokenKind::LeftParen, "expected '('")?;
         let mut params = Vec::new();
-
         if !self.check_kind(&TokenKind::RightParen) {
             loop {
-                // accept `self` as a sugar parameter for methods
                 if self.match_keyword(Keyword::Self_) {
-                    params.push(Param {
-                        name: "self".to_string(),
-                        ty: TypeRef::Infer,
-                    });
+                    params.push(Param { name: "self".to_string(), ty: TypeRef::Infer });
                 } else {
                     let name = self.expect_ident("expected parameter name")?;
-                    self.expect_kind(&TokenKind::Colon, "expected ':' after parameter name")?;
-                    let ty = self.parse_type_ref()?;
+                    // Type annotation is optional (duck typing)
+                    let ty = if self.match_kind(&TokenKind::Colon) {
+                        self.parse_type_ref()?
+                    } else {
+                        TypeRef::Infer
+                    };
                     params.push(Param { name, ty });
                 }
-
                 if !self.match_kind(&TokenKind::Comma) {
                     break;
                 }
@@ -294,107 +331,131 @@ impl Parser {
                 }
             }
         }
-
         self.expect_kind(&TokenKind::RightParen, "expected ')' after parameters")?;
         Ok(params)
     }
+
+    // ── Struct ────────────────────────────────────────────────────────────────
 
     fn parse_struct(&mut self, is_pub: bool) -> LangResult<StructDecl> {
         let span = self.expect_keyword(Keyword::Struct, "expected 'struct'")?;
         let name = self.expect_ident("expected struct name")?;
         let generics = self.parse_generics()?;
-        self.expect_kind(&TokenKind::LeftBrace, "expected '{' before struct fields")?;
-        let mut fields = Vec::new();
-
-        while !self.check_kind(&TokenKind::RightBrace) && !self.is_at_end() {
-            self.match_keyword(Keyword::Pub);
-            let field_name = self.expect_ident("expected field name")?;
-            self.expect_kind(&TokenKind::Colon, "expected ':' after field name")?;
-            let ty = self.parse_type_ref()?;
-            fields.push(Field {
-                name: field_name,
-                ty,
-            });
-            if !self.match_kind(&TokenKind::Comma) {
-                break;
-            }
-        }
-
-        self.expect_kind(&TokenKind::RightBrace, "expected '}' after struct fields")?;
-        Ok(StructDecl {
-            name,
-            generics,
-            fields,
-            is_pub,
-            span,
-        })
+        let fields = self.parse_struct_body()?;
+        Ok(StructDecl { name, generics, fields, is_pub, span })
     }
+
+    fn parse_struct_body(&mut self) -> LangResult<Vec<Field>> {
+        if self.match_kind(&TokenKind::LeftBrace) {
+            // Old brace style
+            let mut fields = Vec::new();
+            self.skip_indent_tokens();
+            while !self.check_kind(&TokenKind::RightBrace) && !self.is_at_end() {
+                self.match_keyword(Keyword::Pub);
+                let field_name = self.expect_ident("expected field name")?;
+                self.expect_kind(&TokenKind::Colon, "expected ':' after field name")?;
+                let ty = self.parse_type_ref()?;
+                fields.push(Field { name: field_name, ty });
+                self.match_kind(&TokenKind::Comma);
+                self.skip_indent_tokens();
+            }
+            self.expect_kind(&TokenKind::RightBrace, "expected '}' after struct fields")?;
+            Ok(fields)
+        } else {
+            // New Python style: struct Name:\n    field: Type
+            self.expect_kind(&TokenKind::Colon, "expected ':' or '{' for struct body")?;
+            self.match_kind(&TokenKind::Newline);
+            self.expect_kind(&TokenKind::Indent, "expected indented struct fields")?;
+            let mut fields = Vec::new();
+            while !self.check_kind(&TokenKind::Dedent) && !self.is_at_end() {
+                self.skip_newlines();
+                if self.check_kind(&TokenKind::Dedent) { break; }
+                self.match_keyword(Keyword::Pub);
+                let field_name = self.expect_ident("expected field name")?;
+                self.expect_kind(&TokenKind::Colon, "expected ':' after field name")?;
+                let ty = self.parse_type_ref()?;
+                fields.push(Field { name: field_name, ty });
+                self.match_kind(&TokenKind::Newline);
+            }
+            self.match_kind(&TokenKind::Dedent);
+            Ok(fields)
+        }
+    }
+
+    // ── Enum ──────────────────────────────────────────────────────────────────
 
     fn parse_enum(&mut self, is_pub: bool) -> LangResult<EnumDecl> {
         let span = self.expect_keyword(Keyword::Enum, "expected 'enum'")?;
         let name = self.expect_ident("expected enum name")?;
         let generics = self.parse_generics()?;
-        self.expect_kind(&TokenKind::LeftBrace, "expected '{' before enum variants")?;
-        let mut variants = Vec::new();
+        let variants = self.parse_enum_body()?;
+        Ok(EnumDecl { name, generics, variants, is_pub, span })
+    }
 
-        while !self.check_kind(&TokenKind::RightBrace) && !self.is_at_end() {
+    fn parse_enum_body(&mut self) -> LangResult<Vec<Variant>> {
+        let use_brace = self.match_kind(&TokenKind::LeftBrace);
+        if !use_brace {
+            self.expect_kind(&TokenKind::Colon, "expected ':' or '{' for enum body")?;
+            self.match_kind(&TokenKind::Newline);
+            self.expect_kind(&TokenKind::Indent, "expected indented enum variants")?;
+        } else {
+            self.skip_indent_tokens();
+        }
+
+        let mut variants = Vec::new();
+        let done = if use_brace {
+            TokenKind::RightBrace
+        } else {
+            TokenKind::Dedent
+        };
+
+        while !self.check_kind(&done) && !self.is_at_end() {
+            self.skip_newlines();
+            if self.check_kind(&done) { break; }
             let variant_name = self.expect_ident("expected variant name")?;
             let mut payload = Vec::new();
             if self.match_kind(&TokenKind::LeftParen) {
                 if !self.check_kind(&TokenKind::RightParen) {
                     loop {
                         payload.push(self.parse_type_ref()?);
-                        if !self.match_kind(&TokenKind::Comma) {
-                            break;
-                        }
-                        if self.check_kind(&TokenKind::RightParen) {
-                            break;
-                        }
+                        if !self.match_kind(&TokenKind::Comma) { break; }
+                        if self.check_kind(&TokenKind::RightParen) { break; }
                     }
                 }
                 self.expect_kind(&TokenKind::RightParen, "expected ')' after variant payload")?;
             }
-            variants.push(Variant {
-                name: variant_name,
-                payload,
-            });
-            if !self.match_kind(&TokenKind::Comma) {
-                break;
+            variants.push(Variant { name: variant_name, payload });
+            if use_brace {
+                self.match_kind(&TokenKind::Comma);
+                self.skip_indent_tokens();
+            } else {
+                self.match_kind(&TokenKind::Newline);
             }
         }
 
-        self.expect_kind(&TokenKind::RightBrace, "expected '}' after enum variants")?;
-        Ok(EnumDecl {
-            name,
-            generics,
-            variants,
-            is_pub,
-            span,
-        })
+        if use_brace {
+            self.expect_kind(&TokenKind::RightBrace, "expected '}' after enum variants")?;
+        } else {
+            self.match_kind(&TokenKind::Dedent);
+        }
+        Ok(variants)
     }
+
+    // ── Generics / where ──────────────────────────────────────────────────────
 
     fn parse_generics(&mut self) -> LangResult<Vec<String>> {
         let mut generics = Vec::new();
         if !self.match_kind(&TokenKind::LeftBracket) {
             return Ok(generics);
         }
-
         if !self.check_kind(&TokenKind::RightBracket) {
             loop {
                 generics.push(self.expect_ident("expected generic parameter name")?);
-                if !self.match_kind(&TokenKind::Comma) {
-                    break;
-                }
-                if self.check_kind(&TokenKind::RightBracket) {
-                    break;
-                }
+                if !self.match_kind(&TokenKind::Comma) { break; }
+                if self.check_kind(&TokenKind::RightBracket) { break; }
             }
         }
-
-        self.expect_kind(
-            &TokenKind::RightBracket,
-            "expected ']' after generic parameters",
-        )?;
+        self.expect_kind(&TokenKind::RightBracket, "expected ']' after generic parameters")?;
         Ok(generics)
     }
 
@@ -402,12 +463,25 @@ impl Parser {
         if !self.match_keyword(Keyword::Where) {
             return Ok(());
         }
-        // Read until '{' begins the body. Trait bounds are accepted but ignored.
-        while !self.is_at_end() && !self.check_kind(&TokenKind::LeftBrace) {
+        // Skip tokens until we reach a block opener: `{` or a `:` before Newline
+        loop {
+            if self.is_at_end() { break; }
+            if self.check_kind(&TokenKind::LeftBrace) { break; }
+            if self.check_kind(&TokenKind::Colon) {
+                // Check if the colon is the block-opening colon (before newline)
+                if matches!(
+                    self.peek_n(1).map(|t| &t.kind),
+                    Some(TokenKind::Newline) | Some(TokenKind::Eof) | None
+                ) {
+                    break;
+                }
+            }
             self.advance();
         }
         Ok(())
     }
+
+    // ── Const ─────────────────────────────────────────────────────────────────
 
     fn parse_const_decl(&mut self, is_pub: bool) -> LangResult<ConstDecl> {
         let span = self.expect_keyword(Keyword::Const, "expected 'const'")?;
@@ -420,31 +494,39 @@ impl Parser {
         self.expect_kind(&TokenKind::Equal, "expected '=' in constant declaration")?;
         let value = self.parse_expression(0)?;
         self.match_kind(&TokenKind::Semicolon);
-        Ok(ConstDecl {
-            name,
-            ty,
-            value,
-            is_pub,
-            span,
-        })
+        Ok(ConstDecl { name, ty, value, is_pub, span })
     }
+
+    // ── Module ────────────────────────────────────────────────────────────────
 
     fn parse_module(&mut self, is_pub: bool) -> LangResult<ModuleDecl> {
         let span = self.expect_keyword(Keyword::Module, "expected 'module'")?;
         let name = self.expect_ident("expected module name")?;
-        self.expect_kind(&TokenKind::LeftBrace, "expected '{' to open module")?;
+
         let mut items = Vec::new();
-        while !self.check_kind(&TokenKind::RightBrace) && !self.is_at_end() {
-            self.parse_top_level_into(&mut items)?;
+        if self.match_kind(&TokenKind::LeftBrace) {
+            self.skip_indent_tokens();
+            while !self.check_kind(&TokenKind::RightBrace) && !self.is_at_end() {
+                self.skip_indent_tokens();
+                if self.check_kind(&TokenKind::RightBrace) { break; }
+                self.parse_top_level_into(&mut items)?;
+            }
+            self.expect_kind(&TokenKind::RightBrace, "expected '}' to close module")?;
+        } else {
+            self.expect_kind(&TokenKind::Colon, "expected ':' or '{' to open module")?;
+            self.match_kind(&TokenKind::Newline);
+            self.expect_kind(&TokenKind::Indent, "expected indented module body")?;
+            while !self.check_kind(&TokenKind::Dedent) && !self.is_at_end() {
+                self.skip_newlines();
+                if self.check_kind(&TokenKind::Dedent) { break; }
+                self.parse_top_level_into(&mut items)?;
+            }
+            self.match_kind(&TokenKind::Dedent);
         }
-        self.expect_kind(&TokenKind::RightBrace, "expected '}' to close module")?;
-        Ok(ModuleDecl {
-            name,
-            items,
-            is_pub,
-            span,
-        })
+        Ok(ModuleDecl { name, items, is_pub, span })
     }
+
+    // ── Import ────────────────────────────────────────────────────────────────
 
     fn parse_import(&mut self) -> LangResult<ImportDecl> {
         let span = if self.match_keyword(Keyword::Import) {
@@ -454,9 +536,7 @@ impl Parser {
         };
         let mut path = vec![self.expect_ident("expected import path")?];
         while self.match_kind(&TokenKind::Dot) || self.match_kind(&TokenKind::ColonColon) {
-            if self.check_kind(&TokenKind::LeftBrace) {
-                break;
-            }
+            if self.check_kind(&TokenKind::LeftBrace) { break; }
             path.push(self.expect_ident("expected import segment")?);
         }
         let mut items = Vec::new();
@@ -464,12 +544,8 @@ impl Parser {
             if !self.check_kind(&TokenKind::RightBrace) {
                 loop {
                     items.push(self.expect_ident("expected imported name")?);
-                    if !self.match_kind(&TokenKind::Comma) {
-                        break;
-                    }
-                    if self.check_kind(&TokenKind::RightBrace) {
-                        break;
-                    }
+                    if !self.match_kind(&TokenKind::Comma) { break; }
+                    if self.check_kind(&TokenKind::RightBrace) { break; }
                 }
             }
             self.expect_kind(&TokenKind::RightBrace, "expected '}' in import list")?;
@@ -478,13 +554,32 @@ impl Parser {
         Ok(ImportDecl { path, items, span })
     }
 
+    // ── Trait ─────────────────────────────────────────────────────────────────
+
     fn parse_trait(&mut self, is_pub: bool) -> LangResult<TraitDecl> {
         let span = self.expect_keyword(Keyword::Trait, "expected 'trait'")?;
         let name = self.expect_ident("expected trait name")?;
         let generics = self.parse_generics()?;
-        self.expect_kind(&TokenKind::LeftBrace, "expected '{' to open trait")?;
+        let methods = self.parse_trait_body()?;
+        Ok(TraitDecl { name, generics, methods, is_pub, span })
+    }
+
+    fn parse_trait_body(&mut self) -> LangResult<Vec<TraitMethod>> {
+        let use_brace = self.match_kind(&TokenKind::LeftBrace);
+        if !use_brace {
+            self.expect_kind(&TokenKind::Colon, "expected ':' or '{' to open trait")?;
+            self.match_kind(&TokenKind::Newline);
+            self.expect_kind(&TokenKind::Indent, "expected indented trait body")?;
+        } else {
+            self.skip_indent_tokens();
+        }
+
+        let done = if use_brace { TokenKind::RightBrace } else { TokenKind::Dedent };
         let mut methods = Vec::new();
-        while !self.check_kind(&TokenKind::RightBrace) && !self.is_at_end() {
+
+        while !self.check_kind(&done) && !self.is_at_end() {
+            self.skip_newlines();
+            if self.check_kind(&done) { break; }
             self.match_keyword(Keyword::Pub);
             let method_span = self.expect_keyword(Keyword::Fn, "expected 'fn' in trait method")?;
             let method_name = self.expect_ident("expected method name")?;
@@ -496,22 +591,19 @@ impl Parser {
                 TypeRef::Unit
             };
             self.match_kind(&TokenKind::Semicolon);
-            methods.push(TraitMethod {
-                name: method_name,
-                params,
-                return_type,
-                span: method_span,
-            });
+            if !use_brace { self.match_kind(&TokenKind::Newline); }
+            methods.push(TraitMethod { name: method_name, params, return_type, span: method_span });
         }
-        self.expect_kind(&TokenKind::RightBrace, "expected '}' to close trait")?;
-        Ok(TraitDecl {
-            name,
-            generics,
-            methods,
-            is_pub,
-            span,
-        })
+
+        if use_brace {
+            self.expect_kind(&TokenKind::RightBrace, "expected '}' to close trait")?;
+        } else {
+            self.match_kind(&TokenKind::Dedent);
+        }
+        Ok(methods)
     }
+
+    // ── Impl ──────────────────────────────────────────────────────────────────
 
     fn parse_impl(&mut self) -> LangResult<ImplBlock> {
         let span = self.expect_keyword(Keyword::Impl, "expected 'impl'")?;
@@ -519,7 +611,6 @@ impl Parser {
         let first = self.expect_ident("expected type or trait name")?;
         let (trait_name, target) = if self.match_keyword(Keyword::For) {
             let target = self.expect_ident("expected target type name")?;
-            // Skip optional generic args on target
             if self.match_kind(&TokenKind::LeftBracket) {
                 while !self.check_kind(&TokenKind::RightBracket) && !self.is_at_end() {
                     self.advance();
@@ -528,7 +619,6 @@ impl Parser {
             }
             (Some(first), target)
         } else {
-            // Skip optional generic args on target
             if self.match_kind(&TokenKind::LeftBracket) {
                 while !self.check_kind(&TokenKind::RightBracket) && !self.is_at_end() {
                     self.advance();
@@ -538,22 +628,41 @@ impl Parser {
             (None, first)
         };
 
-        self.expect_kind(&TokenKind::LeftBrace, "expected '{' to open impl block")?;
+        let methods = self.parse_impl_body()?;
+        Ok(ImplBlock { trait_name, target, generics, methods, span })
+    }
+
+    fn parse_impl_body(&mut self) -> LangResult<Vec<FunctionDecl>> {
+        let use_brace = self.match_kind(&TokenKind::LeftBrace);
+        if !use_brace {
+            self.expect_kind(&TokenKind::Colon, "expected ':' or '{' to open impl block")?;
+            self.match_kind(&TokenKind::Newline);
+            self.expect_kind(&TokenKind::Indent, "expected indented impl body")?;
+        } else {
+            self.skip_indent_tokens();
+        }
+
+        let done = if use_brace { TokenKind::RightBrace } else { TokenKind::Dedent };
         let mut methods = Vec::new();
-        while !self.check_kind(&TokenKind::RightBrace) && !self.is_at_end() {
+
+        while !self.check_kind(&done) && !self.is_at_end() {
+            self.skip_newlines();
+            if self.check_kind(&done) { break; }
             let is_pub = self.match_keyword(Keyword::Pub);
             let is_async = self.match_keyword(Keyword::Async);
             methods.push(self.parse_function(is_pub, is_async)?);
+            if !use_brace { self.skip_newlines(); }
         }
-        self.expect_kind(&TokenKind::RightBrace, "expected '}' to close impl block")?;
-        Ok(ImplBlock {
-            trait_name,
-            target,
-            generics,
-            methods,
-            span,
-        })
+
+        if use_brace {
+            self.expect_kind(&TokenKind::RightBrace, "expected '}' to close impl block")?;
+        } else {
+            self.match_kind(&TokenKind::Dedent);
+        }
+        Ok(methods)
     }
+
+    // ── Extern ────────────────────────────────────────────────────────────────
 
     fn parse_extern(&mut self) -> LangResult<ExternBlock> {
         let span = self.expect_keyword(Keyword::Extern, "expected 'extern'")?;
@@ -565,9 +674,22 @@ impl Parser {
         } else {
             None
         };
-        self.expect_kind(&TokenKind::LeftBrace, "expected '{' to open extern block")?;
+
+        let use_brace = self.match_kind(&TokenKind::LeftBrace);
+        if !use_brace {
+            self.expect_kind(&TokenKind::Colon, "expected ':' or '{' to open extern block")?;
+            self.match_kind(&TokenKind::Newline);
+            self.expect_kind(&TokenKind::Indent, "expected indented extern body")?;
+        } else {
+            self.skip_indent_tokens();
+        }
+
+        let done = if use_brace { TokenKind::RightBrace } else { TokenKind::Dedent };
         let mut items = Vec::new();
-        while !self.check_kind(&TokenKind::RightBrace) && !self.is_at_end() {
+
+        while !self.check_kind(&done) && !self.is_at_end() {
+            self.skip_newlines();
+            if self.check_kind(&done) { break; }
             let item_span = self.expect_keyword(Keyword::Fn, "expected 'fn' in extern block")?;
             let name = self.expect_ident("expected extern function name")?;
             let params = self.parse_params()?;
@@ -577,21 +699,61 @@ impl Parser {
                 TypeRef::Unit
             };
             self.match_kind(&TokenKind::Semicolon);
-            items.push(ExternItem {
-                name,
-                params,
-                return_type,
-                span: item_span,
-            });
+            if !use_brace { self.match_kind(&TokenKind::Newline); }
+            items.push(ExternItem { name, params, return_type, span: item_span });
         }
-        self.expect_kind(&TokenKind::RightBrace, "expected '}' to close extern block")?;
-        Ok(ExternBlock {
-            language,
-            library,
-            items,
-            span,
-        })
+
+        if use_brace {
+            self.expect_kind(&TokenKind::RightBrace, "expected '}' to close extern block")?;
+        } else {
+            self.match_kind(&TokenKind::Dedent);
+        }
+        Ok(ExternBlock { language, library, items, span })
     }
+
+    // ── Block ─────────────────────────────────────────────────────────────────
+
+    /// Parse a block: either old-style `{ ... }` or new Python-style `:\n indent ... dedent`.
+    fn parse_block(&mut self) -> LangResult<Block> {
+        if self.check_kind(&TokenKind::LeftBrace) {
+            self.parse_block_brace()
+        } else {
+            self.parse_block_indent()
+        }
+    }
+
+    /// Old brace-style block `{ stmts }`.
+    fn parse_block_brace(&mut self) -> LangResult<Block> {
+        let span = self.expect_kind(&TokenKind::LeftBrace, "expected '{'")?;
+        let mut statements = Vec::new();
+        loop {
+            self.skip_indent_tokens();
+            if self.check_kind(&TokenKind::RightBrace) || self.is_at_end() { break; }
+            statements.push(self.parse_statement()?);
+        }
+        self.expect_kind(&TokenKind::RightBrace, "expected '}' after block")?;
+        Ok(Block { statements, span })
+    }
+
+    /// New Python-style block `:\n indent stmts dedent`.
+    fn parse_block_indent(&mut self) -> LangResult<Block> {
+        let span = self.peek().span.clone();
+        self.expect_kind(&TokenKind::Colon, "expected ':' or '{' to begin block")?;
+        self.match_kind(&TokenKind::Newline);
+        self.expect_kind(&TokenKind::Indent, "expected indented block after ':'")?;
+
+        let mut statements = Vec::new();
+        loop {
+            self.skip_newlines();
+            if self.check_kind(&TokenKind::Dedent) || self.is_at_end() { break; }
+            statements.push(self.parse_statement()?);
+            self.match_kind(&TokenKind::Newline);
+        }
+        self.match_kind(&TokenKind::Dedent);
+        Ok(Block { statements, span })
+    }
+
+    // ── Statements ────────────────────────────────────────────────────────────
 
     fn parse_statement(&mut self) -> LangResult<Stmt> {
         if self.check_keyword(Keyword::Let) {
@@ -626,31 +788,21 @@ impl Parser {
             let target = self.expr_to_assign_target(expr, &span)?;
             let value = self.parse_expression(0)?;
             self.match_kind(&TokenKind::Semicolon);
-            return Ok(Stmt::Assign {
-                target,
-                value,
-                span,
-            });
+            return Ok(Stmt::Assign { target, value, span });
         }
         let has_semicolon = self.match_kind(&TokenKind::Semicolon);
-        Ok(Stmt::Expr {
-            expr,
-            has_semicolon,
-            span,
-        })
+        Ok(Stmt::Expr { expr, has_semicolon, span })
     }
 
     fn expr_to_assign_target(&self, expr: Expr, span: &Span) -> LangResult<AssignTarget> {
         match expr {
             Expr::Ident(name, _) => Ok(AssignTarget::Name(name)),
-            Expr::Field { target, name, .. } => Ok(AssignTarget::Field {
-                target: *target,
-                name,
-            }),
-            Expr::Index { target, index, .. } => Ok(AssignTarget::Index {
-                target: *target,
-                index: *index,
-            }),
+            Expr::Field { target, name, .. } => {
+                Ok(AssignTarget::Field { target: *target, name })
+            }
+            Expr::Index { target, index, .. } => {
+                Ok(AssignTarget::Index { target: *target, index: *index })
+            }
             _ => Err(Diagnostic::new(
                 "left-hand side of '=' must be a name, field, or index",
                 span.clone(),
@@ -670,23 +822,21 @@ impl Parser {
         self.expect_kind(&TokenKind::Equal, "expected '=' in binding declaration")?;
         let value = self.parse_expression(0)?;
         self.match_kind(&TokenKind::Semicolon);
-        Ok(Stmt::Let {
-            name,
-            ty,
-            mutable,
-            value,
-            span,
-        })
+        Ok(Stmt::Let { name, ty, mutable, value, span })
     }
 
     fn parse_return_statement(&mut self) -> LangResult<Stmt> {
         let span = self.expect_keyword(Keyword::Return, "expected 'return'")?;
-        let value =
-            if self.check_kind(&TokenKind::Semicolon) || self.check_kind(&TokenKind::RightBrace) {
-                None
-            } else {
-                Some(self.parse_expression(0)?)
-            };
+        let value = if self.check_kind(&TokenKind::Semicolon)
+            || self.check_kind(&TokenKind::RightBrace)
+            || self.check_kind(&TokenKind::Newline)
+            || self.check_kind(&TokenKind::Dedent)
+            || self.is_at_end()
+        {
+            None
+        } else {
+            Some(self.parse_expression(0)?)
+        };
         self.match_kind(&TokenKind::Semicolon);
         Ok(Stmt::Return { value, span })
     }
@@ -695,11 +845,7 @@ impl Parser {
         let span = self.expect_keyword(Keyword::While, "expected 'while'")?;
         let condition = self.parse_control_expression()?;
         let body = self.parse_block()?;
-        Ok(Stmt::While {
-            condition,
-            body,
-            span,
-        })
+        Ok(Stmt::While { condition, body, span })
     }
 
     fn parse_for_statement(&mut self) -> LangResult<Stmt> {
@@ -708,26 +854,12 @@ impl Parser {
         self.expect_keyword(Keyword::In, "expected 'in' after 'for' binding")?;
         let iter = self.parse_control_expression()?;
         let body = self.parse_block()?;
-        Ok(Stmt::For {
-            name,
-            iter,
-            body,
-            span,
-        })
+        Ok(Stmt::For { name, iter, body, span })
     }
 
-    fn parse_block(&mut self) -> LangResult<Block> {
-        let span = self.expect_kind(&TokenKind::LeftBrace, "expected '{'")?;
-        let mut statements = Vec::new();
-        while !self.check_kind(&TokenKind::RightBrace) && !self.is_at_end() {
-            statements.push(self.parse_statement()?);
-        }
-        self.expect_kind(&TokenKind::RightBrace, "expected '}' after block")?;
-        Ok(Block { statements, span })
-    }
+    // ── Expressions ───────────────────────────────────────────────────────────
 
     fn parse_control_expression(&mut self) -> LangResult<Expr> {
-        // Control headers (if/while/for) cannot begin a struct literal.
         self.parse_expression_with(0, false)
     }
 
@@ -739,48 +871,32 @@ impl Parser {
         let mut left = self.parse_prefix(allow_struct_lit)?;
 
         loop {
-            // postfix operators: call, dot access, indexing, try `?`
+            // Postfix operators
             if self.check_kind(&TokenKind::LeftParen) {
-                if 18 < min_bp {
-                    break;
-                }
+                if 18 < min_bp { break; }
                 left = self.finish_call(left)?;
                 continue;
             }
             if self.check_kind(&TokenKind::Dot) {
-                if 18 < min_bp {
-                    break;
-                }
+                if 18 < min_bp { break; }
                 left = self.finish_member(left)?;
                 continue;
             }
             if self.check_kind(&TokenKind::LeftBracket) {
-                if 18 < min_bp {
-                    break;
-                }
+                if 18 < min_bp { break; }
                 left = self.finish_index(left)?;
                 continue;
             }
             if self.check_kind(&TokenKind::Question) {
-                if 17 < min_bp {
-                    break;
-                }
+                if 17 < min_bp { break; }
                 let span = self.peek().span.clone();
                 self.advance();
-                left = Expr::Try {
-                    expr: Box::new(left),
-                    span,
-                };
+                left = Expr::Try { expr: Box::new(left), span };
                 continue;
             }
 
-            let Some((op, left_bp, right_bp)) = self.current_infix() else {
-                break;
-            };
-
-            if left_bp < min_bp {
-                break;
-            }
+            let Some((op, left_bp, right_bp)) = self.current_infix() else { break };
+            if left_bp < min_bp { break; }
 
             let span = self.peek().span.clone();
             self.advance();
@@ -805,7 +921,6 @@ impl Parser {
                 },
             };
         }
-
         Ok(left)
     }
 
@@ -817,38 +932,32 @@ impl Parser {
             TokenKind::String(value) => Ok(Expr::String(value, token.span)),
             TokenKind::Ident(name) => {
                 // struct literal: Name { field: value, ... }
-                if allow_struct_lit && self.check_kind(&TokenKind::LeftBrace) && self.looks_like_struct_lit() {
+                if allow_struct_lit
+                    && self.check_kind(&TokenKind::LeftBrace)
+                    && self.looks_like_struct_lit()
+                {
                     return self.parse_struct_lit(name, token.span);
                 }
                 Ok(Expr::Ident(name, token.span))
             }
             TokenKind::Keyword(Keyword::True) => Ok(Expr::Bool(true, token.span)),
             TokenKind::Keyword(Keyword::False) => Ok(Expr::Bool(false, token.span)),
-            TokenKind::Keyword(Keyword::Self_) => Ok(Expr::Ident("self".to_string(), token.span)),
-            TokenKind::Bang => {
+            TokenKind::Keyword(Keyword::None_) => Ok(Expr::Unit(token.span)),
+            TokenKind::Keyword(Keyword::Self_) => {
+                Ok(Expr::Ident("self".to_string(), token.span))
+            }
+            TokenKind::Bang | TokenKind::Keyword(Keyword::Not) => {
                 let expr = self.parse_expression_with(15, allow_struct_lit)?;
-                Ok(Expr::Unary {
-                    op: UnaryOp::Not,
-                    expr: Box::new(expr),
-                    span: token.span,
-                })
+                Ok(Expr::Unary { op: UnaryOp::Not, expr: Box::new(expr), span: token.span })
             }
             TokenKind::Minus => {
                 let expr = self.parse_expression_with(15, allow_struct_lit)?;
-                Ok(Expr::Unary {
-                    op: UnaryOp::Negate,
-                    expr: Box::new(expr),
-                    span: token.span,
-                })
+                Ok(Expr::Unary { op: UnaryOp::Negate, expr: Box::new(expr), span: token.span })
             }
             TokenKind::Amp => {
                 let is_mut = self.match_keyword(Keyword::Mut);
                 let expr = self.parse_expression_with(15, allow_struct_lit)?;
-                Ok(Expr::Ref {
-                    expr: Box::new(expr),
-                    is_mut,
-                    span: token.span,
-                })
+                Ok(Expr::Ref { expr: Box::new(expr), is_mut, span: token.span })
             }
             TokenKind::LeftParen => {
                 if self.match_kind(&TokenKind::RightParen) {
@@ -860,8 +969,8 @@ impl Parser {
                 }
             }
             TokenKind::LeftBrace => {
-                self.current -= 1;
-                Ok(Expr::Block(self.parse_block()?))
+                // Dict literal: { key: value, ... } or old block expression
+                self.parse_dict_literal(token.span)
             }
             TokenKind::LeftBracket => self.parse_list_literal(token.span),
             TokenKind::Keyword(Keyword::If) => self.parse_if_expression(token.span),
@@ -869,33 +978,23 @@ impl Parser {
             TokenKind::Keyword(Keyword::Fn) => self.parse_lambda(token.span),
             TokenKind::Keyword(Keyword::Spawn) => {
                 let expr = self.parse_expression(15)?;
-                Ok(Expr::Spawn {
-                    expr: Box::new(expr),
-                    span: token.span,
-                })
+                Ok(Expr::Spawn { expr: Box::new(expr), span: token.span })
             }
             TokenKind::Keyword(Keyword::Await) => {
                 let expr = self.parse_expression(15)?;
-                Ok(Expr::Await {
-                    expr: Box::new(expr),
-                    span: token.span,
-                })
+                Ok(Expr::Await { expr: Box::new(expr), span: token.span })
             }
             TokenKind::Keyword(Keyword::Region) => {
                 let name = self.expect_ident("expected a name after 'region'")?;
                 let body = self.parse_block()?;
-                Ok(Expr::Region {
-                    name,
-                    body,
-                    span: token.span,
-                })
+                Ok(Expr::Region { name, body, span: token.span })
             }
             _ => Err(Diagnostic::new("expected expression", token.span)),
         }
     }
 
     fn looks_like_struct_lit(&self) -> bool {
-        // Detect `Name { ident :` to avoid colliding with block expressions.
+        // `Name { ident :` or `Name { }`
         match (
             self.peek_n(0).map(|t| &t.kind),
             self.peek_n(1).map(|t| &t.kind),
@@ -915,12 +1014,24 @@ impl Parser {
             self.expect_kind(&TokenKind::Colon, "expected ':' after field name")?;
             let value = self.parse_expression(0)?;
             fields.push((field_name, value));
-            if !self.match_kind(&TokenKind::Comma) {
-                break;
-            }
+            if !self.match_kind(&TokenKind::Comma) { break; }
         }
         self.expect_kind(&TokenKind::RightBrace, "expected '}' in struct literal")?;
         Ok(Expr::StructLit { name, fields, span })
+    }
+
+    fn parse_dict_literal(&mut self, span: Span) -> LangResult<Expr> {
+        // `{` already consumed
+        let mut pairs = Vec::new();
+        while !self.check_kind(&TokenKind::RightBrace) && !self.is_at_end() {
+            let key = self.parse_expression(0)?;
+            self.expect_kind(&TokenKind::Colon, "expected ':' in dict literal")?;
+            let value = self.parse_expression(0)?;
+            pairs.push((key, value));
+            if !self.match_kind(&TokenKind::Comma) { break; }
+        }
+        self.expect_kind(&TokenKind::RightBrace, "expected '}' in dict literal")?;
+        Ok(Expr::Dict(pairs, span))
     }
 
     fn parse_list_literal(&mut self, span: Span) -> LangResult<Expr> {
@@ -928,12 +1039,8 @@ impl Parser {
         if !self.check_kind(&TokenKind::RightBracket) {
             loop {
                 items.push(self.parse_expression(0)?);
-                if !self.match_kind(&TokenKind::Comma) {
-                    break;
-                }
-                if self.check_kind(&TokenKind::RightBracket) {
-                    break;
-                }
+                if !self.match_kind(&TokenKind::Comma) { break; }
+                if self.check_kind(&TokenKind::RightBracket) { break; }
             }
         }
         self.expect_kind(&TokenKind::RightBracket, "expected ']' in list literal")?;
@@ -943,6 +1050,8 @@ impl Parser {
     fn parse_if_expression(&mut self, span: Span) -> LangResult<Expr> {
         let condition = self.parse_control_expression()?;
         let then_branch = self.parse_block()?;
+        // Skip blank lines between if-body and else/elif
+        self.skip_newlines();
         let else_branch = if self.match_keyword(Keyword::Else) {
             if self.match_keyword(Keyword::If) {
                 let nested_span = self.previous().span.clone();
@@ -958,44 +1067,65 @@ impl Parser {
             } else {
                 Some(self.parse_block()?)
             }
+        } else if self.match_keyword(Keyword::Elif) {
+            // elif = else if (Python sugar)
+            let nested_span = self.previous().span.clone();
+            let nested = self.parse_if_expression(nested_span)?;
+            Some(Block {
+                statements: vec![Stmt::Expr {
+                    expr: nested,
+                    has_semicolon: false,
+                    span: self.previous().span.clone(),
+                }],
+                span: self.previous().span.clone(),
+            })
         } else {
             None
         };
-
-        Ok(Expr::If {
-            condition: Box::new(condition),
-            then_branch,
-            else_branch,
-            span,
-        })
+        Ok(Expr::If { condition: Box::new(condition), then_branch, else_branch, span })
     }
 
     fn parse_match_expression(&mut self, span: Span) -> LangResult<Expr> {
         let scrutinee = self.parse_control_expression()?;
-        self.expect_kind(&TokenKind::LeftBrace, "expected '{' before match arms")?;
+        let arms = self.parse_match_arms()?;
+        Ok(Expr::Match { scrutinee: Box::new(scrutinee), arms, span })
+    }
+
+    fn parse_match_arms(&mut self) -> LangResult<Vec<MatchArm>> {
+        let use_brace = self.match_kind(&TokenKind::LeftBrace);
+        if !use_brace {
+            self.expect_kind(&TokenKind::Colon, "expected ':' or '{' before match arms")?;
+            self.match_kind(&TokenKind::Newline);
+            self.expect_kind(&TokenKind::Indent, "expected indented match arms")?;
+        } else {
+            self.skip_indent_tokens();
+        }
+
+        let done = if use_brace { TokenKind::RightBrace } else { TokenKind::Dedent };
         let mut arms = Vec::new();
 
-        while !self.check_kind(&TokenKind::RightBrace) && !self.is_at_end() {
+        while !self.check_kind(&done) && !self.is_at_end() {
+            self.skip_newlines();
+            if self.check_kind(&done) { break; }
             let arm_span = self.peek().span.clone();
             let pattern = self.parse_pattern()?;
             self.expect_kind(&TokenKind::FatArrow, "expected '=>' in match arm")?;
             let body = self.parse_expression(0)?;
-            arms.push(MatchArm {
-                pattern,
-                body,
-                span: arm_span,
-            });
-            if !self.match_kind(&TokenKind::Comma) {
-                break;
+            arms.push(MatchArm { pattern, body, span: arm_span });
+            if use_brace {
+                self.match_kind(&TokenKind::Comma);
+                self.skip_indent_tokens();
+            } else {
+                self.match_kind(&TokenKind::Newline);
             }
         }
 
-        self.expect_kind(&TokenKind::RightBrace, "expected '}' after match arms")?;
-        Ok(Expr::Match {
-            scrutinee: Box::new(scrutinee),
-            arms,
-            span,
-        })
+        if use_brace {
+            self.expect_kind(&TokenKind::RightBrace, "expected '}' after match arms")?;
+        } else {
+            self.match_kind(&TokenKind::Dedent);
+        }
+        Ok(arms)
     }
 
     fn parse_pattern(&mut self) -> LangResult<Pattern> {
@@ -1008,27 +1138,18 @@ impl Parser {
                     if !self.check_kind(&TokenKind::RightParen) {
                         loop {
                             payload.push(self.parse_pattern()?);
-                            if !self.match_kind(&TokenKind::Comma) {
-                                break;
-                            }
-                            if self.check_kind(&TokenKind::RightParen) {
-                                break;
-                            }
+                            if !self.match_kind(&TokenKind::Comma) { break; }
+                            if self.check_kind(&TokenKind::RightParen) { break; }
                         }
                     }
                     self.expect_kind(&TokenKind::RightParen, "expected ')' after variant payload")?;
-                    return Ok(Pattern::Variant {
-                        name,
-                        payload,
-                        span: token.span,
-                    });
+                    return Ok(Pattern::Variant { name, payload, span: token.span });
                 }
                 Ok(Pattern::Ident(name, token.span))
             }
             TokenKind::Int(value) => Ok(Pattern::Int(value, token.span)),
             TokenKind::Float(value) => Ok(Pattern::Float(value, token.span)),
             TokenKind::Minus => {
-                // negative literal pattern
                 let next = self.advance().clone();
                 match next.kind {
                     TokenKind::Int(value) => Ok(Pattern::Int(-value, token.span)),
@@ -1061,36 +1182,23 @@ impl Parser {
             LambdaBody::Block(self.parse_block()?)
         };
 
-        Ok(Expr::Lambda {
-            params,
-            return_type,
-            body,
-            span,
-        })
+        Ok(Expr::Lambda { params, return_type, body, span })
     }
+
+    // ── Call / member / index ─────────────────────────────────────────────────
 
     fn finish_call(&mut self, callee: Expr) -> LangResult<Expr> {
         let span = self.expect_kind(&TokenKind::LeftParen, "expected '('")?;
         let mut args = Vec::new();
-
         if !self.check_kind(&TokenKind::RightParen) {
             loop {
                 args.push(self.parse_expression(0)?);
-                if !self.match_kind(&TokenKind::Comma) {
-                    break;
-                }
-                if self.check_kind(&TokenKind::RightParen) {
-                    break;
-                }
+                if !self.match_kind(&TokenKind::Comma) { break; }
+                if self.check_kind(&TokenKind::RightParen) { break; }
             }
         }
-
         self.expect_kind(&TokenKind::RightParen, "expected ')' after call arguments")?;
-        Ok(Expr::Call {
-            callee: Box::new(callee),
-            args,
-            span,
-        })
+        Ok(Expr::Call { callee: Box::new(callee), args, span })
     }
 
     fn finish_member(&mut self, target: Expr) -> LangResult<Expr> {
@@ -1102,27 +1210,14 @@ impl Parser {
             if !self.check_kind(&TokenKind::RightParen) {
                 loop {
                     args.push(self.parse_expression(0)?);
-                    if !self.match_kind(&TokenKind::Comma) {
-                        break;
-                    }
-                    if self.check_kind(&TokenKind::RightParen) {
-                        break;
-                    }
+                    if !self.match_kind(&TokenKind::Comma) { break; }
+                    if self.check_kind(&TokenKind::RightParen) { break; }
                 }
             }
             self.expect_kind(&TokenKind::RightParen, "expected ')' after method arguments")?;
-            Ok(Expr::MethodCall {
-                target: Box::new(target),
-                name,
-                args,
-                span,
-            })
+            Ok(Expr::MethodCall { target: Box::new(target), name, args, span })
         } else {
-            Ok(Expr::Field {
-                target: Box::new(target),
-                name,
-                span,
-            })
+            Ok(Expr::Field { target: Box::new(target), name, span })
         }
     }
 
@@ -1130,12 +1225,10 @@ impl Parser {
         let span = self.expect_kind(&TokenKind::LeftBracket, "expected '['")?;
         let index = self.parse_expression(0)?;
         self.expect_kind(&TokenKind::RightBracket, "expected ']' after index expression")?;
-        Ok(Expr::Index {
-            target: Box::new(target),
-            index: Box::new(index),
-            span,
-        })
+        Ok(Expr::Index { target: Box::new(target), index: Box::new(index), span })
     }
+
+    // ── Types ─────────────────────────────────────────────────────────────────
 
     fn parse_type_ref(&mut self) -> LangResult<TypeRef> {
         if self.match_kind(&TokenKind::Amp) {
@@ -1143,37 +1236,36 @@ impl Parser {
             let inner = self.parse_type_ref()?;
             return Ok(TypeRef::Ref(Box::new(inner), is_mut));
         }
-
         if self.match_kind(&TokenKind::LeftParen) {
             self.expect_kind(&TokenKind::RightParen, "expected ')' in unit type")?;
             return Ok(TypeRef::Unit);
         }
-
         if self.match_keyword(Keyword::Fn) {
             let params = self.parse_type_list(TokenKind::LeftParen, TokenKind::RightParen)?;
             self.expect_kind(&TokenKind::Arrow, "expected '->' in function type")?;
             let result = self.parse_type_ref()?;
             return Ok(TypeRef::Function(params, Box::new(result)));
         }
-
         if self.match_kind(&TokenKind::LeftBracket) {
             let elem = self.parse_type_ref()?;
             self.expect_kind(&TokenKind::RightBracket, "expected ']' in list type")?;
             return Ok(TypeRef::List(Box::new(elem)));
         }
-
+        // `_` = infer
+        if let TokenKind::Ident(name) = &self.peek().kind {
+            if name == "_" {
+                self.advance();
+                return Ok(TypeRef::Infer);
+            }
+        }
         let name = self.expect_ident("expected type name")?;
         if self.match_kind(&TokenKind::LeftBracket) {
             let mut args = Vec::new();
             if !self.check_kind(&TokenKind::RightBracket) {
                 loop {
                     args.push(self.parse_type_ref()?);
-                    if !self.match_kind(&TokenKind::Comma) {
-                        break;
-                    }
-                    if self.check_kind(&TokenKind::RightBracket) {
-                        break;
-                    }
+                    if !self.match_kind(&TokenKind::Comma) { break; }
+                    if self.check_kind(&TokenKind::RightBracket) { break; }
                 }
             }
             self.expect_kind(&TokenKind::RightBracket, "expected ']' after type arguments")?;
@@ -1185,43 +1277,41 @@ impl Parser {
     fn parse_type_list(&mut self, open: TokenKind, close: TokenKind) -> LangResult<Vec<TypeRef>> {
         self.expect_kind(&open, "expected opening delimiter")?;
         let mut types = Vec::new();
-
         if !self.check_kind(&close) {
             loop {
                 types.push(self.parse_type_ref()?);
-                if !self.match_kind(&TokenKind::Comma) {
-                    break;
-                }
-                if self.check_kind(&close) {
-                    break;
-                }
+                if !self.match_kind(&TokenKind::Comma) { break; }
+                if self.check_kind(&close) { break; }
             }
         }
-
         self.expect_kind(&close, "expected closing delimiter")?;
         Ok(types)
     }
 
+    // ── Operator precedence ───────────────────────────────────────────────────
+
     fn current_infix(&self) -> Option<(InfixOp, u8, u8)> {
-        match self.peek().kind {
-            TokenKind::OrOr => Some((InfixOp::Or, 1, 2)),
-            TokenKind::AndAnd => Some((InfixOp::And, 3, 4)),
+        match &self.peek().kind {
+            TokenKind::OrOr | TokenKind::Keyword(Keyword::Or) => Some((InfixOp::Or, 1, 2)),
+            TokenKind::AndAnd | TokenKind::Keyword(Keyword::And) => Some((InfixOp::And, 3, 4)),
             TokenKind::PipeForward => Some((InfixOp::Pipeline, 5, 6)),
-            TokenKind::DotDot => Some((InfixOp::Range, 5, 6)),
+            TokenKind::DotDot     => Some((InfixOp::Range, 5, 6)),
             TokenKind::EqualEqual => Some((InfixOp::Equal, 7, 8)),
-            TokenKind::BangEqual => Some((InfixOp::NotEqual, 7, 8)),
-            TokenKind::Less => Some((InfixOp::Less, 9, 10)),
-            TokenKind::LessEqual => Some((InfixOp::LessEqual, 9, 10)),
-            TokenKind::Greater => Some((InfixOp::Greater, 9, 10)),
+            TokenKind::BangEqual  => Some((InfixOp::NotEqual, 7, 8)),
+            TokenKind::Less       => Some((InfixOp::Less, 9, 10)),
+            TokenKind::LessEqual  => Some((InfixOp::LessEqual, 9, 10)),
+            TokenKind::Greater    => Some((InfixOp::Greater, 9, 10)),
             TokenKind::GreaterEqual => Some((InfixOp::GreaterEqual, 9, 10)),
-            TokenKind::Plus => Some((InfixOp::Add, 11, 12)),
-            TokenKind::Minus => Some((InfixOp::Subtract, 11, 12)),
-            TokenKind::Star => Some((InfixOp::Multiply, 13, 14)),
-            TokenKind::Slash => Some((InfixOp::Divide, 13, 14)),
-            TokenKind::Percent => Some((InfixOp::Remainder, 13, 14)),
+            TokenKind::Plus       => Some((InfixOp::Add, 11, 12)),
+            TokenKind::Minus      => Some((InfixOp::Subtract, 11, 12)),
+            TokenKind::Star       => Some((InfixOp::Multiply, 13, 14)),
+            TokenKind::Slash      => Some((InfixOp::Divide, 13, 14)),
+            TokenKind::Percent    => Some((InfixOp::Remainder, 13, 14)),
             _ => None,
         }
     }
+
+    // ── Low-level helpers ─────────────────────────────────────────────────────
 
     fn expect_ident(&mut self, message: &str) -> LangResult<String> {
         let token = self.advance().clone();
@@ -1270,7 +1360,25 @@ impl Parser {
     }
 
     fn check_keyword(&self, expected: Keyword) -> bool {
-        matches!(self.peek().kind, TokenKind::Keyword(keyword) if keyword == expected)
+        matches!(self.peek().kind, TokenKind::Keyword(kw) if kw == expected)
+    }
+
+    /// Skip NEWLINE tokens (but NOT INDENT/DEDENT).
+    fn skip_newlines(&mut self) {
+        while matches!(self.peek().kind, TokenKind::Newline | TokenKind::Semicolon) {
+            self.advance();
+        }
+    }
+
+    /// Skip INDENT, DEDENT, NEWLINE, and Semicolon tokens.
+    /// Used inside old-style `{ }` blocks where these are spurious.
+    fn skip_indent_tokens(&mut self) {
+        while matches!(
+            self.peek().kind,
+            TokenKind::Indent | TokenKind::Dedent | TokenKind::Newline | TokenKind::Semicolon
+        ) {
+            self.advance();
+        }
     }
 
     fn advance(&mut self) -> &Token {
@@ -1297,43 +1405,32 @@ impl Parser {
     }
 }
 
+// ── InfixOp helper ────────────────────────────────────────────────────────────
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum InfixOp {
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-    Remainder,
-    Equal,
-    NotEqual,
-    Less,
-    LessEqual,
-    Greater,
-    GreaterEqual,
-    And,
-    Or,
-    Pipeline,
-    Range,
+    Add, Subtract, Multiply, Divide, Remainder,
+    Equal, NotEqual, Less, LessEqual, Greater, GreaterEqual,
+    And, Or, Pipeline, Range,
 }
 
 impl InfixOp {
     fn into_binary(self) -> Option<BinaryOp> {
         Some(match self {
-            InfixOp::Add => BinaryOp::Add,
-            InfixOp::Subtract => BinaryOp::Subtract,
-            InfixOp::Multiply => BinaryOp::Multiply,
-            InfixOp::Divide => BinaryOp::Divide,
+            InfixOp::Add       => BinaryOp::Add,
+            InfixOp::Subtract  => BinaryOp::Subtract,
+            InfixOp::Multiply  => BinaryOp::Multiply,
+            InfixOp::Divide    => BinaryOp::Divide,
             InfixOp::Remainder => BinaryOp::Remainder,
-            InfixOp::Equal => BinaryOp::Equal,
-            InfixOp::NotEqual => BinaryOp::NotEqual,
-            InfixOp::Less => BinaryOp::Less,
+            InfixOp::Equal     => BinaryOp::Equal,
+            InfixOp::NotEqual  => BinaryOp::NotEqual,
+            InfixOp::Less      => BinaryOp::Less,
             InfixOp::LessEqual => BinaryOp::LessEqual,
-            InfixOp::Greater => BinaryOp::Greater,
+            InfixOp::Greater   => BinaryOp::Greater,
             InfixOp::GreaterEqual => BinaryOp::GreaterEqual,
-            InfixOp::And => BinaryOp::And,
-            InfixOp::Or => BinaryOp::Or,
-            InfixOp::Pipeline => return None,
-            InfixOp::Range => return None,
+            InfixOp::And       => BinaryOp::And,
+            InfixOp::Or        => BinaryOp::Or,
+            InfixOp::Pipeline | InfixOp::Range => return None,
         })
     }
 }
