@@ -1,0 +1,32 @@
+// channels.mom — Phase 3 built-in Channel primitive.
+//
+// `Channel(capacity)` creates a bounded channel; `Channel()` is
+// unbounded. Methods: `.send(x)`, `.recv()`, `.try_recv()`,
+// `.len()`, `.is_empty()`, `.capacity()`, `.close()`.
+
+fn main() {
+    let ch = Channel(4)
+
+    ch.send(10)
+    ch.send(20)
+    ch.send(30)
+
+    print(ch.len())
+
+    match ch.recv() {
+        Some(v) => print(v),
+        None    => print(-1),
+    }
+    match ch.recv() {
+        Some(v) => print(v),
+        None    => print(-1),
+    }
+    match ch.recv() {
+        Some(v) => print(v),
+        None    => print(-1),
+    }
+    match ch.recv() {
+        Some(v) => print(v),
+        None    => print(-1),
+    }
+}

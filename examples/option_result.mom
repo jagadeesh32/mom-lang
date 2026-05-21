@@ -1,0 +1,35 @@
+// option_result.mom — built-in Option and Result, the `?` operator.
+
+fn parse(value: Int) -> Result[Int, String] {
+    if value < 0 {
+        Err("negative")
+    } else {
+        Ok(value * 2)
+    }
+}
+
+fn doubled_plus_one(value: Int) -> Result[Int, String] {
+    let inner = parse(value)?
+    Ok(inner + 1)
+}
+
+fn first(xs: [Int]) -> Option[Int] {
+    if len(xs) == 0 { None } else { Some(xs[0]) }
+}
+
+fn main() {
+    match doubled_plus_one(5) {
+        Ok(v)  => print(v),     // 11
+        Err(e) => print(e),
+    }
+
+    match doubled_plus_one(-1) {
+        Ok(v)  => print(v),
+        Err(e) => print(e),     // negative
+    }
+
+    match first([7, 8, 9]) {
+        Some(x) => print(x),    // 7
+        None    => print(0),
+    }
+}

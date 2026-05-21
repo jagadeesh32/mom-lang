@@ -1,0 +1,40 @@
+// web_server_sketch.mom — PLANNED SYNTAX.
+//
+// Once std.net and the async runtime are in place (Phase 3) the
+// idiomatic version of this file is:
+//
+//     import std.net.http
+//     import std.async.{spawn, await}
+//
+//     async fn handle(req: http.Request) -> http.Response { ... }
+//
+//     fn main() {
+//         await serve(Config { port: 8080, workers: 8 })
+//     }
+//
+// The bootstrap parser does not yet allow keyword identifiers
+// ("await") inside an import list. The version below parses today
+// and demonstrates the same shape using locally-defined types.
+
+import std.log
+
+struct Request  { path: String }
+struct Response { status: Int, body: String }
+struct Config   { port: Int, workers: Int }
+
+fn handle(req: Request) -> Response {
+    match req.path {
+        "/health"  => Response { status: 200, body: "ok" },
+        "/version" => Response { status: 200, body: "mom 0.1.0" },
+        _          => Response { status: 404, body: "not found" },
+    }
+}
+
+fn main() {
+    let config = Config { port: 8080, workers: 8 }
+    print(config.port)
+
+    let res = handle(Request { path: "/health" })
+    print(res.status)
+    print(res.body)
+}

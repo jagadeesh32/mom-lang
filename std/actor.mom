@@ -1,0 +1,41 @@
+// std/actor.mom — Phase 6 stage-0 implementation of std::actor.
+//
+// Mailbox + run-loop pattern built from the Phase 3 channel
+// primitive. Demonstrates the canonical "spawn a stateful actor and
+// feed it messages" shape that user code adopts. The native stage-2
+// generalizes this with the `actor` sugar and supervised
+// restart-on-failure semantics; the stage-0 version is the same
+// architecture in plain functions.
+
+enum CounterMsg {
+    Inc,
+    Add(Int),
+    Get,
+    Stop,
+}
+
+fn run_counter(mailbox: Channel[CounterMsg]) -> Int {
+    let mut count = 0
+    let mut running = true
+    while running {
+        match mailbox.recv() {
+            Some(Inc)    => { count = count + 1 },
+            Some(Add(n)) => { count = count + n },
+            Some(Get)    => { print(count) },
+            Some(Stop)   => { running = false },
+            None         => { running = false },
+        }
+    }
+    count
+}
+
+fn main() {
+    let mailbox = Channel(16)
+    mailbox.send(Inc)
+    mailbox.send(Inc)
+    mailbox.send(Add(40))
+    mailbox.send(Get)        // prints 42
+    mailbox.send(Stop)
+    let final_count = run_counter(mailbox)
+    print(final_count)       // 42
+}

@@ -1,0 +1,12 @@
+// hello.mom — the simplest mom program.
+//
+// Run with:   cargo run -- run examples/hello.mom
+
+fn greet(name: String) -> String {
+    "hello, " + name
+}
+
+fn main() {
+    let language = "mom"
+    print(greet(language))
+}

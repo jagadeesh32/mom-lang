@@ -1,0 +1,35 @@
+// memory.mom — Phase 2 memory primitives.
+//
+// Shows references (`&T`, `&mut T`), regions (`region r { ... }`),
+// and the smart-pointer wrappers `Box`, `Rc`, `Arc`.
+//
+// Run with:   cargo run -- run examples/memory.mom
+
+fn main() {
+    // Shared borrow — multiple `&x` may coexist.
+    let n = 21
+    let a = &n
+    let b = &n
+    print(a)
+    print(b)
+
+    // Region: every binding made inside `region r { ... }` is freed at
+    // the end of the block. The region's *value* is its tail expression.
+    let label = region r {
+        let tag = "request:GET /healthz"
+        tag
+    }
+    print(label)
+
+    // Heap allocation lives behind the `Box` smart pointer.
+    let boxed = Box(99)
+    print(boxed)
+
+    // Reference-counted shared ownership.
+    let shared = Rc("greeting")
+    print(shared)
+
+    // Atomically reference-counted for cross-thread sharing.
+    let atomic = Arc(true)
+    print(atomic)
+}

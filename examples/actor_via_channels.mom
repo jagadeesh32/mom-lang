@@ -1,0 +1,41 @@
+// actor_via_channels.mom — actor pattern built from Phase 3 channels.
+//
+// The native `actor` keyword (Phase 3.1) is sugar for: a struct of
+// state + a typed mailbox channel + a recv-and-dispatch loop. This
+// example shows the same architecture in code, runnable today.
+
+enum CounterMsg {
+    Inc,
+    Add(Int),
+    Get,
+    Stop,
+}
+
+fn run_counter(mailbox: Channel[CounterMsg]) -> Int {
+    let mut count = 0
+    let mut running = true
+
+    while running {
+        match mailbox.recv() {
+            Some(Inc)      => { count = count + 1 },
+            Some(Add(n))   => { count = count + n },
+            Some(Get)      => { print(count) },
+            Some(Stop)     => { running = false },
+            None           => { running = false },
+        }
+    }
+    count
+}
+
+fn main() {
+    let mailbox = Channel(16)
+
+    mailbox.send(Inc)
+    mailbox.send(Inc)
+    mailbox.send(Add(40))
+    mailbox.send(Get)
+    mailbox.send(Stop)
+
+    let final_count = run_counter(mailbox)
+    print(final_count)
+}

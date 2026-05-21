@@ -1,0 +1,91 @@
+// std/core.mom — Phase 6 stage-0 implementation of std::core.
+//
+// `std::core` is the always-imported prelude: identity / min / max /
+// clamp, Option and Result helpers, and a handful of numeric utilities
+// that everything else in the standard library builds on. The native
+// stage-2 compiler will promote these to language-level intrinsics
+// where the optimizer benefits.
+//
+// Acceptance: run by `tests/stdlib.rs`; main() must complete and
+// print the expected oracle below.
+
+fn identity[T](value: T) -> T {
+    value
+}
+
+fn min(a: Int, b: Int) -> Int {
+    if a < b { a } else { b }
+}
+
+fn max(a: Int, b: Int) -> Int {
+    if a > b { a } else { b }
+}
+
+fn clamp(value: Int, lo: Int, hi: Int) -> Int {
+    if value < lo { lo } else if value > hi { hi } else { value }
+}
+
+fn abs(value: Int) -> Int {
+    if value < 0 { -value } else { value }
+}
+
+fn sign(value: Int) -> Int {
+    if value > 0 { 1 } else if value < 0 { -1 } else { 0 }
+}
+
+// Option helpers ------------------------------------------------------------
+
+fn option_or(value: Option[Int], fallback: Int) -> Int {
+    match value {
+        Some(v) => v,
+        None    => fallback,
+    }
+}
+
+fn option_is_some(value: Option[Int]) -> Bool {
+    match value {
+        Some(_) => true,
+        None    => false,
+    }
+}
+
+// Result helpers ------------------------------------------------------------
+
+fn result_or(value: Result[Int, String], fallback: Int) -> Int {
+    match value {
+        Ok(v)  => v,
+        Err(_) => fallback,
+    }
+}
+
+fn result_map_int(value: Result[Int, String], add: Int) -> Result[Int, String] {
+    match value {
+        Ok(v)  => Ok(v + add),
+        Err(e) => Err(e),
+    }
+}
+
+fn main() {
+    print(identity(42))                        // 42
+    print(min(3, 7))                           // 3
+    print(max(3, 7))                           // 7
+    print(clamp(50, 0, 10))                    // 10
+    print(clamp(-1, 0, 10))                    // 0
+    print(clamp(5, 0, 10))                     // 5
+    print(abs(-9))                             // 9
+    print(sign(-3))                            // -1
+    print(sign(0))                             // 0
+    print(sign(8))                             // 1
+
+    print(option_or(Some(99), 0))              // 99
+    print(option_or(None, 0))                  // 0
+    print(option_is_some(Some(1)))             // true
+    print(option_is_some(None))                // false
+
+    print(result_or(Ok(5), 0))                 // 5
+    print(result_or(Err("nope"), -1))          // -1
+    match result_map_int(Ok(10), 5) {
+        Ok(v)  => print(v),                    // 15
+        Err(e) => print(e),
+    }
+}

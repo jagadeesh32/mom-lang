@@ -1,0 +1,46 @@
+// borrow.mom — Phase 2 borrow checker in action.
+//
+// The borrow checker catches these errors at compile time:
+//   * use of a moved value
+//   * two `&mut` of the same binding in scope
+//   * `&` and `&mut` of the same binding in scope
+//   * mutating a binding while it is borrowed
+//   * `&mut` of an immutable binding
+//
+// Uncomment any of the BAD blocks to see the borrow checker reject
+// the program with a precise diagnostic.
+
+fn main() {
+    // OK — multiple shared borrows.
+    let name = "alice"
+    let a = &name
+    let b = &name
+    print(a)
+    print(b)
+
+    // OK — mutable borrow inside its own scope.
+    let mut counter = 0
+    {
+        let m = &mut counter
+        print(m)
+    }
+    counter = counter + 1
+    print(counter)
+
+    // BAD — double mutable borrow.
+    // let mut x = "hello"
+    // let r1 = &mut x
+    // let r2 = &mut x
+    // print(r1)
+
+    // BAD — shared + mutable borrow.
+    // let mut y = "hi"
+    // let s = &y
+    // let m = &mut y
+    // print(s)
+
+    // BAD — use after move.
+    // let owned = "owned"
+    // let other = owned
+    // print(owned)
+}

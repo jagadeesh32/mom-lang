@@ -1,0 +1,42 @@
+// actor_sketch.mom — PLANNED SYNTAX.
+//
+// Native actor + supervisor execution lands in roadmap Phase 3.
+// The bootstrap parser does not yet accept the dedicated `actor` /
+// `receive` declaration forms shown in docs/concurrency.md:
+//
+//     actor Cache {
+//         state map: Map[String, Bytes]
+//         receive {
+//             Get(key, reply) => reply.send(map.get(key)),
+//             Put(key, val)   => map.insert(key, val),
+//         }
+//     }
+//
+// Below is the same model expressed with constructs the parser
+// already supports — struct state + an explicit message enum +
+// a step function — so the file still type-checks and runs today.
+
+enum CacheMessage {
+    Get(String),
+    Put(String, String),
+    Clear,
+}
+
+struct Cache { hits: Int }
+
+impl Cache {
+    fn step(self, msg: CacheMessage) -> Cache {
+        match msg {
+            Get(_)    => Cache { hits: self.hits + 1 },
+            Put(_, _) => Cache { hits: self.hits },
+            Clear     => Cache { hits: 0 },
+        }
+    }
+}
+
+fn main() {
+    let mut cache = Cache { hits: 0 }
+    cache = cache.step(Put("hello", "world"))
+    cache = cache.step(Get("hello"))
+    print(cache.hits)
+}

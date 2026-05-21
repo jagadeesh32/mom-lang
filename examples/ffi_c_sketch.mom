@@ -1,0 +1,17 @@
+// ffi_c_sketch.mom — PLANNED SYNTAX (C FFI).
+//
+// `extern c` blocks register C symbols for the linker. The bootstrap
+// interpreter parses them but raises an error if you try to call one,
+// since there is no native linker yet — the call works once the LLVM
+// backend lands (roadmap Phase 1).
+
+extern c "m" {
+    fn cos(x: Float) -> Float
+    fn sin(x: Float) -> Float
+    fn pow(base: Float, exponent: Float) -> Float
+}
+
+fn main() {
+    // These would print 1, 0, 1024 in a native build.
+    print("FFI declarations parsed; native backend executes the calls.")
+}

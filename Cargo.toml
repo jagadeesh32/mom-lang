@@ -1,0 +1,23 @@
+[package]
+name = "mom"
+version = "0.1.0"
+edition = "2021"
+description = "Mom is a modern, safe, fast self-hosted systems programming language."
+license = "Apache-2.0"
+
+[lib]
+name = "mom"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mom"
+path = "src/main.rs"
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = false
+strip = "symbols"

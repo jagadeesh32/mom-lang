@@ -1,0 +1,101 @@
+// std/crypto.mom — Phase 6 stage-0 implementation of std::crypto.
+//
+// The bootstrap interpreter exposes Int but no bitwise operators, so
+// the stage-0 module ships checksums that only need +, *, /, and %.
+// Once the native stage-2 lands the language gets `&`, `|`, `^`, and
+// `<<` / `>>`, at which point this module gains FNV-1a, SipHash, and
+// SHA-256 in real form. The surface stays identical: `digest` takes
+// a byte vector and returns an Int.
+//
+// Implemented today:
+//   * adler32(bytes)     — Mark Adler's 1995 checksum
+//   * poly_hash(bytes)   — polynomial rolling hash, prime 131
+//   * hex_byte(byte)     — 2-char hex of a 0..=255 byte
+//   * hex_int(value)     — 8-char zero-padded hex of a 32-bit int
+
+fn adler32(bytes: [Int]) -> Int {
+    let modulus = 65521
+    let mut a = 1
+    let mut b = 0
+    let mut i = 0
+    let n = len(bytes)
+    while i < n {
+        a = (a + bytes[i]) % modulus
+        b = (b + a) % modulus
+        i = i + 1
+    }
+    b * 65536 + a
+}
+
+fn poly_hash(bytes: [Int]) -> Int {
+    let prime = 131
+    let modulus = 1000000007
+    let mut h = 0
+    let mut i = 0
+    let n = len(bytes)
+    while i < n {
+        h = (h * prime + bytes[i]) % modulus
+        i = i + 1
+    }
+    h
+}
+
+fn hex_digit(nibble: Int) -> String {
+    match nibble {
+        0  => "0",
+        1  => "1",
+        2  => "2",
+        3  => "3",
+        4  => "4",
+        5  => "5",
+        6  => "6",
+        7  => "7",
+        8  => "8",
+        9  => "9",
+        10 => "a",
+        11 => "b",
+        12 => "c",
+        13 => "d",
+        14 => "e",
+        _  => "f",
+    }
+}
+
+fn hex_byte(byte: Int) -> String {
+    let high = byte / 16
+    let low = byte % 16
+    hex_digit(high) + hex_digit(low)
+}
+
+fn hex_int(value: Int) -> String {
+    let mut out = ""
+    let mut v = value
+    let mut i = 0
+    while i < 8 {
+        let nibble = v % 16
+        out = hex_digit(nibble) + out
+        v = v / 16
+        i = i + 1
+    }
+    out
+}
+
+fn main() {
+    // "abc" -> [97, 98, 99]; Adler-32 of "abc" is 0x024d0127 = 38600999.
+    let abc = [97, 98, 99]
+    print(adler32(abc))                // 38600999
+
+    // Empty input -> Adler-32 = 1.
+    let empty = []
+    print(adler32(empty))              // 1
+
+    // poly_hash is deterministic.
+    let h1 = poly_hash([109, 111, 109])
+    let h2 = poly_hash([109, 111, 109])
+    print(h1 == h2)                    // true
+
+    print(hex_byte(255))               // ff
+    print(hex_byte(0))                 // 00
+    print(hex_byte(171))               // ab
+    print(hex_int(305419896))          // 12345678
+}

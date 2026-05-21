@@ -1,0 +1,27 @@
+// structs.mom — struct definition, struct literal, field access, `impl` methods.
+
+struct Point { x: Int, y: Int }
+
+impl Point {
+    fn shift(self, dx: Int, dy: Int) -> Point {
+        Point { x: self.x + dx, y: self.y + dy }
+    }
+
+    fn manhattan(self, other: Point) -> Int {
+        let dx = self.x - other.x
+        let dy = self.y - other.y
+        // absolute value via simple branch
+        let ax = if dx < 0 { -dx } else { dx }
+        let ay = if dy < 0 { -dy } else { dy }
+        ax + ay
+    }
+}
+
+fn main() {
+    let origin = Point { x: 0, y: 0 }
+    let p      = Point { x: 3, y: 4 }
+    let q      = p.shift(1, 1)
+    print(p.manhattan(origin))      // 7
+    print(q.x)                      // 4
+    print(q.y)                      // 5
+}

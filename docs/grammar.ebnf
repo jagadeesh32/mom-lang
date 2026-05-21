@@ -1,0 +1,163 @@
+# mom — Enterprise Grammar (EBNF)
+
+This is the surface grammar accepted by the bootstrap parser. Tokens are
+in capital letters; literal lexemes are quoted. `?`, `*`, `+` are the
+usual EBNF metacharacters. `";?"` means an optional trailing semicolon.
+
+```ebnf
+program        = item* EOF ;
+
+item           = visibility?
+                 ( function
+                 | struct_decl
+                 | enum_decl
+                 | trait_decl
+                 | impl_block
+                 | module_decl
+                 | extern_block
+                 | const_decl
+                 | import_decl
+                 | statement ) ;
+
+visibility     = "pub" ;
+
+(* ─── declarations ────────────────────────────────────────────── *)
+
+function       = "async"? "fn" IDENT generics? params return_type? where_clause? block ;
+return_type    = "->" type ;
+generics       = "[" IDENT ( "," IDENT )* ","? "]" ;
+where_clause   = "where" type_bound ( "," type_bound )* ;
+type_bound     = IDENT ":" IDENT ( "+" IDENT )* ;
+params         = "(" ( param ( "," param )* ","? )? ")" ;
+param          = "self" | IDENT ":" type ;
+
+struct_decl    = "struct" IDENT generics? "{" struct_fields? "}" ;
+struct_fields  = struct_field ( "," struct_field )* ","? ;
+struct_field   = visibility? IDENT ":" type ;
+
+enum_decl      = "enum" IDENT generics? "{" variants? "}" ;
+variants       = variant ( "," variant )* ","? ;
+variant        = IDENT ( "(" type_list? ")" )? ;
+
+trait_decl     = "trait" IDENT generics? "{" trait_method* "}" ;
+trait_method   = visibility? "fn" IDENT generics? params return_type? ";"? ;
+
+impl_block     = "impl" generics? IDENT ( "[" type_list "]" )?
+                 ( "for" IDENT ( "[" type_list "]" )? )?
+                 "{" impl_method* "}" ;
+impl_method    = visibility? "async"? function ;
+
+module_decl    = "module" IDENT "{" item* "}" ;
+
+extern_block   = "extern" IDENT STRING? "{" extern_item* "}" ;
+extern_item    = "fn" IDENT params return_type? ";"? ;
+
+const_decl     = "const" IDENT ( ":" type )? "=" expression ";"? ;
+
+import_decl    = ( "import" | "use" ) import_path ( "{" import_list "}" )? ";"? ;
+import_path    = IDENT ( ( "." | "::" ) IDENT )* ;
+import_list    = IDENT ( "," IDENT )* ","? ;
+
+(* ─── statements ──────────────────────────────────────────────── *)
+
+statement      = let_stmt
+               | const_decl
+               | return_stmt
+               | while_stmt
+               | for_stmt
+               | break_stmt
+               | continue_stmt
+               | expr_or_assign_stmt ;
+
+let_stmt       = "let" "mut"? IDENT ( ":" type )? "=" expression ";"? ;
+return_stmt    = "return" expression? ";"? ;
+while_stmt     = "while" expression block ;
+for_stmt       = "for" IDENT "in" expression block ;
+break_stmt     = "break" ";"? ;
+continue_stmt  = "continue" ";"? ;
+
+(* `expr = expr` is an assignment if the lhs is a valid lvalue *)
+expr_or_assign_stmt
+               = expression ( "=" expression )? ";"? ;
+
+block          = "{" statement* "}" ;
+
+(* ─── expressions (precedence low → high) ─────────────────────── *)
+
+expression     = pipeline ;
+pipeline       = logic_or  ( ( "|>" | ".." ) logic_or )* ;
+logic_or       = logic_and ( "||" logic_and )* ;
+logic_and      = equality  ( "&&" equality )* ;
+equality       = comparison ( ( "==" | "!=" ) comparison )* ;
+comparison     = term ( ( "<" | "<=" | ">" | ">=" ) term )* ;
+term           = factor ( ( "+" | "-" ) factor )* ;
+factor         = unary ( ( "*" | "/" | "%" ) unary )* ;
+unary          = ( "!" | "-" ) unary | postfix ;
+
+postfix        = primary ( call_args
+                         | "." IDENT call_args?
+                         | "[" expression "]"
+                         | "?" )* ;
+
+call_args      = "(" ( expression ( "," expression )* ","? )? ")" ;
+
+primary        = INT
+               | FLOAT
+               | STRING
+               | "true" | "false"
+               | "self"
+               | IDENT struct_lit_tail?
+               | "(" expression? ")"
+               | list_lit
+               | block
+               | if_expr
+               | match_expr
+               | lambda
+               | "spawn" expression
+               | "await" expression ;
+
+struct_lit_tail = "{" struct_lit_fields? "}" ;
+struct_lit_fields = struct_lit_field ( "," struct_lit_field )* ","? ;
+struct_lit_field  = IDENT ":" expression ;
+
+list_lit       = "[" ( expression ( "," expression )* ","? )? "]" ;
+
+if_expr        = "if" expression block ( "else" ( block | if_expr ) )? ;
+
+match_expr     = "match" expression "{" match_arm ( "," match_arm )* ","? "}" ;
+match_arm      = pattern "=>" expression ;
+
+pattern        = "_"
+               | IDENT ( "(" pattern_list? ")" )?
+               | INT | FLOAT | STRING
+               | "-" ( INT | FLOAT )
+               | "true" | "false"
+               | "(" ")" ;
+pattern_list   = pattern ( "," pattern )* ","? ;
+
+lambda         = "fn" params ( "->" type )? ( "=>" expression | block ) ;
+
+(* ─── types ───────────────────────────────────────────────────── *)
+
+type           = "()"
+               | "fn" "(" type_list? ")" "->" type
+               | "[" type "]"
+               | IDENT ( "[" type_list "]" )? ;
+type_list      = type ( "," type )* ","? ;
+```
+
+Operator precedence (lowest to highest):
+
+| Level | Operators                  | Associativity |
+|-------|----------------------------|---------------|
+| 1     | `||`                       | left          |
+| 2     | `&&`                       | left          |
+| 3     | `|>`,  `..`                | left          |
+| 4     | `==`, `!=`                 | left          |
+| 5     | `<`, `<=`, `>`, `>=`       | left          |
+| 6     | `+`, `-`                   | left          |
+| 7     | `*`, `/`, `%`              | left          |
+| 8     | unary `!`, `-`             | right         |
+| 9     | postfix `()`, `.`, `[]`, `?` | left        |
+
+`spawn` and `await` bind at unary level.

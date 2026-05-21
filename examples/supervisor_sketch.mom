@@ -1,0 +1,42 @@
+// supervisor_sketch.mom — PLANNED SYNTAX.
+//
+// The native concurrency runtime (Phase 3) will execute OTP-style
+// supervision:
+//
+//     supervise group {
+//         spawn MetricsPump   { count: 0 }    with restart(limit: 5)
+//         spawn RequestRouter { hits:  0 }    with restart(limit: 10)
+//         spawn DbConnection  { ok:    true } with permanent
+//     }
+//
+// The bootstrap parser does not yet accept the `supervise … with …`
+// form. The following parses and runs today, modelling the same
+// supervision intent with a simple data-driven loop.
+
+enum RestartPolicy { Permanent, Restart(Int), Temporary }
+
+struct Child { name: String, policy: RestartPolicy, failures: Int }
+
+fn should_restart(child: Child) -> Bool {
+    match child.policy {
+        Permanent     => true,
+        Restart(lim)  => child.failures < lim,
+        Temporary     => false,
+    }
+}
+
+fn main() {
+    let children = [
+        Child { name: "metrics",  policy: Restart(5),  failures: 2 },
+        Child { name: "router",   policy: Restart(10), failures: 3 },
+        Child { name: "database", policy: Permanent,   failures: 0 },
+    ]
+
+    for c in children {
+        if should_restart(c) {
+            print(c.name + ": restart")
+        } else {
+            print(c.name + ": stop")
+        }
+    }
+}

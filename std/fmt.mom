@@ -1,0 +1,79 @@
+// std/fmt.mom — Phase 6 stage-0 implementation of std::fmt.
+//
+// String formatting helpers: padding, joining, repeating, simple
+// key/value rendering. The native stage-2 will replace `to_string`
+// with a trait-based `Display` once trait dispatch lands on the
+// native backend.
+//
+// Notes on the stage-0 borrow checker:
+// the helpers below avoid using a moved `String` parameter in more
+// than one place along a single path. We sink each input into a
+// single concatenation site to stay within the conservative ruleset.
+
+fn repeat(s: String, times: Int) -> String {
+    let mut out = ""
+    let mut i = 0
+    while i < times {
+        out = out + s
+        i = i + 1
+    }
+    out
+}
+
+fn pad_left(s: String, width: Int, fill: String) -> String {
+    let needed = width - len(s)
+    let prefix = if needed > 0 { repeat(fill, needed) } else { "" }
+    prefix + s
+}
+
+fn pad_right(s: String, width: Int, fill: String) -> String {
+    let needed = width - len(s)
+    let suffix = if needed > 0 { repeat(fill, needed) } else { "" }
+    s + suffix
+}
+
+fn join(items: [String], sep: String) -> String {
+    let mut out = ""
+    let mut i = 0
+    let n = len(items)
+    while i < n {
+        if i > 0 {
+            out = out + sep
+        }
+        out = out + items[i]
+        i = i + 1
+    }
+    out
+}
+
+fn join_ints(items: [Int], sep: String) -> String {
+    let mut out = ""
+    let mut i = 0
+    let n = len(items)
+    while i < n {
+        if i > 0 {
+            out = out + sep
+        }
+        out = out + to_string(items[i])
+        i = i + 1
+    }
+    out
+}
+
+fn key_value(key: String, value: String) -> String {
+    key + "=" + value
+}
+
+fn bracket(inner: String) -> String {
+    "[" + inner + "]"
+}
+
+fn main() {
+    print(repeat("ab", 3))                              // ababab
+    print(pad_left("7", 4, "0"))                        // 0007
+    print(pad_right("hi", 5, "."))                      // hi...
+    print(join(["a", "b", "c"], ", "))                  // a, b, c
+    print(join_ints([1, 2, 3, 4], "-"))                 // 1-2-3-4
+    print(key_value("user", "alice"))                   // user=alice
+    print(bracket(join(["one", "two"], "|")))           // [one|two]
+}

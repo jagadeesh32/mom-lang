@@ -1,0 +1,21 @@
+// cancel.mom — Phase 3 cooperative cancellation token.
+//
+// Cancel() creates a token; .signal() signals it; .is_cancelled()
+// checks it. Used by long-running tasks to bail out cleanly.
+
+fn work_until(token: Cancel, max: Int) -> Int {
+    let mut i = 0
+    while !token.is_cancelled() {
+        i = i + 1
+        if i >= max {
+            token.signal()
+        }
+    }
+    i
+}
+
+fn main() {
+    let token = Cancel()
+    print(work_until(token, 5))
+    print(token.is_cancelled())
+}

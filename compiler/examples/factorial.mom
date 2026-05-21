@@ -1,0 +1,15 @@
+// factorial.mom — stage-1.1 demo: while loop + mutable state.
+
+fn factorial(n: Int) -> Int {
+    let mut result = 1
+    let mut i = 1
+    while i <= n {
+        result = result * i
+        i = i + 1
+    }
+    return result
+}
+
+fn main() {
+    print(factorial(7))
+}

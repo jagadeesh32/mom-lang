@@ -1,0 +1,30 @@
+// std/alloc.mom — Phase 6 stage-0 implementation of std::alloc.
+//
+// Heap allocation primitives. The bootstrap interpreter shares the
+// same shared cell behind `Box`, `Rc`, and `Arc`; the native stage-2
+// distinguishes them at the type-system level. This module just
+// shows the surface and asserts that all three constructors run.
+//
+// Acceptance: `main()` exercises the four wrappers and prints their
+// values.
+
+fn region_value() -> String {
+    let label = region r {
+        let tag = "request:GET /healthz"
+        tag
+    }
+    label
+}
+
+fn main() {
+    let boxed = Box(99)
+    print(boxed)                  // 99
+
+    let shared = Rc(7)
+    print(shared)                 // 7
+
+    let atomic = Arc(true)
+    print(atomic)                 // true
+
+    print(region_value())         // request:GET /healthz
+}

@@ -1,0 +1,75 @@
+// std/sync.mom — Phase 6 stage-0 implementation of std::sync.
+//
+// The bootstrap interpreter is single-threaded, so real mutual
+// exclusion is a no-op: there is at most one thread of execution and
+// every operation is already atomic. This module ships the *surface*
+// user code will spell — `Mutex.lock`, `Atomic.swap`, `Once.call` —
+// so programs written against `std::sync` today recompile unchanged
+// once the native stage-2 ships the multi-threaded scheduler.
+//
+// Acceptance: exercises Mutex.lock + swap + Once.call and prints the
+// recorded values.
+
+struct Mutex { value: Int, locks: Int }
+struct Atomic { value: Int }
+struct Once { fired: Bool, value: Int }
+
+impl Mutex {
+    fn lock(self) -> Mutex {
+        // In stage-0 there is no contention; lock simply bumps the
+        // counter so user code can observe how many critical sections
+        // it has run through.
+        Mutex { value: self.value, locks: self.locks + 1 }
+    }
+
+    fn set(self, value: Int) -> Mutex {
+        Mutex { value: value, locks: self.locks }
+    }
+
+    fn get(self) -> Int { self.value }
+}
+
+impl Atomic {
+    fn swap(self, value: Int) -> Atomic {
+        Atomic { value: value }
+    }
+
+    fn fetch_add(self, delta: Int) -> Atomic {
+        Atomic { value: self.value + delta }
+    }
+
+    fn get(self) -> Int { self.value }
+}
+
+impl Once {
+    fn call(self, value: Int) -> Once {
+        if self.fired {
+            Once { fired: true, value: self.value }
+        } else {
+            Once { fired: true, value: value }
+        }
+    }
+}
+
+fn new_mutex(initial: Int) -> Mutex { Mutex { value: initial, locks: 0 } }
+fn new_atomic(initial: Int) -> Atomic { Atomic { value: initial } }
+fn new_once() -> Once { Once { fired: false, value: 0 } }
+
+fn main() {
+    let mut m = new_mutex(10)
+    m = m.lock()
+    m = m.set(42)
+    print(m.get())           // 42
+    print(m.locks)           // 1
+
+    let mut a = new_atomic(7)
+    a = a.fetch_add(3)
+    a = a.swap(100)
+    print(a.get())           // 100
+
+    let mut o = new_once()
+    o = o.call(5)
+    o = o.call(99)
+    print(o.value)           // 5 (second call ignored)
+    print(o.fired)           // true
+}

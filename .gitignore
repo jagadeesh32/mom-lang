@@ -1,0 +1,39 @@
+# Rust / Cargo
+/target/
+Cargo.lock
+
+# Generated binaries
+*.exe
+*.dll
+*.so
+*.dylib
+*.rlib
+*.pdb
+
+# Compiler outputs (mom language artifacts)
+*.mom.out
+*.mom.bin
+*.ll
+*.bc
+*.s
+*.o
+
+# IDE
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs & temp
+*.log
+*.tmp
+/tmp/
+
+# Claude
+.claude/settings.local.json

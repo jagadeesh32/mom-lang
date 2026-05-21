@@ -1,0 +1,42 @@
+// std/io.mom — Phase 6 stage-0 implementation of std::io.
+//
+// The bootstrap interpreter only has `print(...)` as a sink. This
+// module builds a `LineBuffer` that accumulates lines into a single
+// String so user code can compose multi-line output deterministically,
+// then flushes it in one `print`. Once the native stage-2 ships,
+// `LineBuffer.flush` will route to the real stdout writer.
+//
+// Acceptance: build a buffer, write three lines, flush.
+
+struct LineBuffer { buf: String }
+
+impl LineBuffer {
+    fn writeln(self, line: String) -> LineBuffer {
+        LineBuffer { buf: self.buf + line + "\n" }
+    }
+
+    fn write(self, chunk: String) -> LineBuffer {
+        LineBuffer { buf: self.buf + chunk }
+    }
+
+    fn flush(self) -> String {
+        self.buf
+    }
+}
+
+fn newline() -> String {
+    "\n"
+}
+
+fn empty_buffer() -> LineBuffer {
+    LineBuffer { buf: "" }
+}
+
+fn main() {
+    let mut buf = empty_buffer()
+    buf = buf.writeln("alpha")
+    buf = buf.writeln("beta")
+    buf = buf.write("gamma")
+    buf = buf.write(newline())
+    print(buf.flush())              // alpha\nbeta\ngamma\n  (rendered as 3 lines)
+}

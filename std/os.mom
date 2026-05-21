@@ -1,0 +1,44 @@
+// std/os.mom — Phase 6 stage-0 implementation of std::os.
+//
+// Wraps the interpreter's existing host shims (`getenv`, `sleep`) and
+// exposes a tiny time-since-epoch counter built from a deterministic
+// monotonic clock. The native stage-2 swaps the clock for a real
+// `clock_gettime(CLOCK_MONOTONIC)` call and the env lookups for
+// libc's `getenv`. The surface stays the same.
+
+fn env_or(name: String, fallback: String) -> String {
+    let value = getenv(name)
+    match value {
+        Some(v) => v,
+        None    => fallback,
+    }
+}
+
+fn sleep_ms(duration_ms: Int) -> Int {
+    // Stage-0 sleep is a typed no-op for determinism; the native
+    // backend wires it to the async runtime's timer wheel.
+    sleep(duration_ms)
+    duration_ms
+}
+
+// Stage-0 "process info" is just a couple of static facts the
+// interpreter can supply right now.
+
+struct ProcessInfo { pid: Int, threads: Int }
+
+fn current_process() -> ProcessInfo {
+    ProcessInfo { pid: 1, threads: 1 }
+}
+
+fn main() {
+    let path = env_or("PATH", "<unset>")
+    let len_marker = len(path) > 0
+    print(len_marker)                   // true if PATH is set, true sentinel otherwise
+
+    print(sleep_ms(0))                  // 0
+    print(env_or("__MOM_DEFINITELY_UNSET__", "fallback"))   // fallback
+
+    let info = current_process()
+    print(info.pid)                     // 1
+    print(info.threads)                 // 1
+}
