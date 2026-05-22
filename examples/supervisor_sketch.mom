@@ -3,11 +3,10 @@
 // The native concurrency runtime (Phase 3) will execute OTP-style
 // supervision:
 //
-//     supervise group {
+//     supervise group:
 //         spawn MetricsPump   { count: 0 }    with restart(limit: 5)
 //         spawn RequestRouter { hits:  0 }    with restart(limit: 10)
 //         spawn DbConnection  { ok:    true } with permanent
-//     }
 //
 // The bootstrap parser does not yet accept the `supervise … with …`
 // form. The following parses and runs today, modelling the same

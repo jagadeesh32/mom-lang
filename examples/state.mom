@@ -1,9 +1,7 @@
 // state.mom — explicit mutation with `let mut`.
 
-fn main() {
+fn main():
     let mut total = 0
-    while total < 5 {
+    while total < 5:
         total = total + 1
-    }
     print(total)
-}

@@ -3,20 +3,17 @@
 // The bootstrap interpreter accepts generic syntax and runs it with
 // dynamic dispatch. The native backend monomorphizes at compile time.
 
-fn identity[T](value: T) -> T {
+fn identity[T](value: T) -> T:
     value
-}
 
-fn pair[A, B](a: A, b: B) -> [A] {
+fn pair[A, B](a: A, b: B) -> [A]:
     // a trivial demo using a homogeneous list as the "pair"
     [a, identity(a)]
-}
 
-fn main() {
+fn main():
     print(identity(42))
     print(identity("hello"))
 
     let demo = pair(1, 2)
     print(demo[0])
     print(demo[1])
-}

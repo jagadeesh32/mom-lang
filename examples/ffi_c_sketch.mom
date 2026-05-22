@@ -5,13 +5,11 @@
 // since there is no native linker yet — the call works once the LLVM
 // backend lands (roadmap Phase 1).
 
-extern c "m" {
+extern c "m":
     fn cos(x: Float) -> Float
     fn sin(x: Float) -> Float
     fn pow(base: Float, exponent: Float) -> Float
-}
 
-fn main() {
+fn main():
     // These would print 1, 0, 1024 in a native build.
     print("FFI declarations parsed; native backend executes the calls.")
-}

@@ -10,7 +10,7 @@
 // Uncomment any of the BAD blocks to see the borrow checker reject
 // the program with a precise diagnostic.
 
-fn main() {
+fn main():
     // OK — multiple shared borrows.
     let name = "alice"
     let a = &name
@@ -20,10 +20,9 @@ fn main() {
 
     // OK — mutable borrow inside its own scope.
     let mut counter = 0
-    {
+    block:
         let m = &mut counter
         print(m)
-    }
     counter = counter + 1
     print(counter)
 
@@ -43,4 +42,3 @@ fn main() {
     // let owned = "owned"
     // let other = owned
     // print(owned)
-}

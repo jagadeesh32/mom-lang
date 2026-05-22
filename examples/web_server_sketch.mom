@@ -6,11 +6,10 @@
 //     import std.net.http
 //     import std.async.{spawn, await}
 //
-//     async fn handle(req: http.Request) -> http.Response { ... }
+//     async fn handle(req: http.Request) -> http.Response: ...
 //
-//     fn main() {
+//     fn main():
 //         await serve(Config { port: 8080, workers: 8 })
-//     }
 //
 // The bootstrap parser does not yet allow keyword identifiers
 // ("await") inside an import list. The version below parses today

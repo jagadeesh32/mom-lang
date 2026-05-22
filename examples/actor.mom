@@ -1,22 +1,24 @@
 // actor.mom — Phase 3.1 actor syntax sugar.
 //
-// The parser desugars `actor Counter { state … receive { … } }` into
-// a `struct Counter { … }` and an `impl Counter { fn step(self, msg) -> Counter { … } }`.
+// The parser desugars `actor Counter: state … receive: …` into
+// a `struct Counter: …` and an `impl Counter: fn step(self, msg) -> Counter: …`.
 
-enum CounterMsg { Inc, Dec, Reset, Add(Int) }
+enum CounterMsg:
+    Inc
+    Dec
+    Reset
+    Add(Int)
 
-actor Counter {
-    state count: Int,
+actor Counter:
+    state count: Int
 
-    receive {
-        Inc      => Counter { count: self.count + 1 },
-        Dec      => Counter { count: self.count - 1 },
-        Reset    => Counter { count: 0 },
-        Add(n)   => Counter { count: self.count + n },
-    }
-}
+    receive:
+        Inc      => Counter { count: self.count + 1 }
+        Dec      => Counter { count: self.count - 1 }
+        Reset    => Counter { count: 0 }
+        Add(n)   => Counter { count: self.count + n }
 
-fn main() {
+fn main():
     let mut c = Counter { count: 0 }
     c = c.step(Inc)
     c = c.step(Inc)
@@ -25,4 +27,3 @@ fn main() {
     print(c.count)             // 11
     c = c.step(Reset)
     print(c.count)             // 0
-}

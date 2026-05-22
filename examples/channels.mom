@@ -4,7 +4,7 @@
 // unbounded. Methods: `.send(x)`, `.recv()`, `.try_recv()`,
 // `.len()`, `.is_empty()`, `.capacity()`, `.close()`.
 
-fn main() {
+fn main():
     let ch = Channel(4)
 
     ch.send(10)
@@ -13,20 +13,15 @@ fn main() {
 
     print(ch.len())
 
-    match ch.recv() {
-        Some(v) => print(v),
-        None    => print(-1),
-    }
-    match ch.recv() {
-        Some(v) => print(v),
-        None    => print(-1),
-    }
-    match ch.recv() {
-        Some(v) => print(v),
-        None    => print(-1),
-    }
-    match ch.recv() {
-        Some(v) => print(v),
-        None    => print(-1),
-    }
-}
+    match ch.recv():
+        Some(v) => print(v)
+        None    => print(-1)
+    match ch.recv():
+        Some(v) => print(v)
+        None    => print(-1)
+    match ch.recv():
+        Some(v) => print(v)
+        None    => print(-1)
+    match ch.recv():
+        Some(v) => print(v)
+        None    => print(-1)

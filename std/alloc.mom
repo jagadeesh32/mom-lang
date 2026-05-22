@@ -9,10 +9,9 @@
 // values.
 
 fn region_value() -> String:
-    let label = region r {
+    let label = region r:
         let tag = "request:GET /healthz"
         tag
-    }
     label
 
 fn main():

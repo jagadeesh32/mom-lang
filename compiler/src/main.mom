@@ -627,6 +627,28 @@ fn expect_ident(state: ParseState) -> String:
         TIdent(name) => name
         _            => panic("expected identifier")
 
+fn expect_ident_or_kw(state: ParseState) -> String:
+    // Accept TIdent OR keyword tokens as identifiers.
+    // This is needed for enum variant names that match keywords (e.g., TFn, TIf).
+    let t = advance(state)
+    match t:
+        TIdent(name) => name
+        TFn          => "fn"
+        TLet         => "let"
+        TMut         => "mut"
+        TIf          => "if"
+        TElse        => "else"
+        TWhile       => "while"
+        TFor         => "for"
+        TIn          => "in"
+        TReturn      => "return"
+        TEnum        => "enum"
+        TStruct      => "struct"
+        TMatch       => "match"
+        TTrue        => "true"
+        TFalse       => "false"
+        _            => panic("expected identifier")
+
 fn expect_colon(state: ParseState):
     let t = advance(state)
     if !is_tcolon(t):
@@ -1354,9 +1376,17 @@ fn parse_function(state: ParseState) -> Fn:
     let body = parse_block(state)
     Fn { name: name, params: params, ret: ret, body: body }
 
+fn is_top_level_start(t: Token) -> Bool:
+    match t:
+        TFn     => true
+        TEnum   => true
+        TStruct => true
+        TEOF    => true
+        _       => false
+
 fn parse_enum_decl(state: ParseState) -> EnumDecl:
     let dummy = advance(state)
-    let ename = expect_ident(state)
+    let ename = expect_ident_or_kw(state)
     expect_lbrace(state)
     let variants = []
     let mut done = false
@@ -1365,8 +1395,11 @@ fn parse_enum_decl(state: ParseState) -> EnumDecl:
         if is_trbrace(t):
             let dummy2 = advance(state)
             done = true
+        else if is_top_level_start(t):
+            // No closing brace — implicit close at next top-level item.
+            done = true
         else:
-            let vname = expect_ident(state)
+            let vname = expect_ident_or_kw(state)
             let payload = []
             let t2 = peek(state)
             if is_tlparen(t2):
@@ -1392,7 +1425,7 @@ fn parse_enum_decl(state: ParseState) -> EnumDecl:
 
 fn parse_struct_decl(state: ParseState) -> StructDecl:
     let dummy = advance(state)
-    let sname = expect_ident(state)
+    let sname = expect_ident_or_kw(state)
     expect_lbrace(state)
     let fields = []
     let mut done = false
@@ -1401,8 +1434,10 @@ fn parse_struct_decl(state: ParseState) -> StructDecl:
         if is_trbrace(t):
             let dummy2 = advance(state)
             done = true
+        else if is_top_level_start(t):
+            done = true
         else:
-            let dname = expect_ident(state)
+            let dname = expect_ident_or_kw(state)
             expect_colon(state)
             let dtype = parse_type(state)
             push(fields, FieldDecl { dname: dname, dtype: dtype })
@@ -1421,6 +1456,9 @@ fn parse_program(tokens: [Token]) -> Program:
         let t = peek(state)
         if is_eof(t):
             done = true
+        else if is_trbrace(t):
+            // Skip stray `}` from desugar of indented blocks
+            let dummy = advance(state)
         else if is_tenum(t):
             push(enums, parse_enum_decl(state))
         else if is_tstruct(t):

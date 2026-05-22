@@ -4,13 +4,11 @@
 // The bootstrap parser does not yet accept the dedicated `actor` /
 // `receive` declaration forms shown in docs/concurrency.md:
 //
-//     actor Cache {
+//     actor Cache:
 //         state map: Map[String, Bytes]
-//         receive {
-//             Get(key, reply) => reply.send(map.get(key)),
-//             Put(key, val)   => map.insert(key, val),
-//         }
-//     }
+//         receive:
+//             Get(key, reply) => reply.send(map.get(key))
+//             Put(key, val)   => map.insert(key, val)
 //
 // Below is the same model expressed with constructs the parser
 // already supports — struct state + an explicit message enum +

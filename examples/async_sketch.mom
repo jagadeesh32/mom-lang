@@ -5,20 +5,16 @@
 // bootstrap interpreter accepts the syntax and runs bodies
 // synchronously.
 
-async fn fetch(url: String) -> Result[String, String] {
+async fn fetch(url: String) -> Result[String, String]:
     // simulate IO with a synchronous body
     if url == "" { Err("empty url") } else { Ok("body of " + url) }
-}
 
-async fn process(url: String) -> Result[Int, String] {
+async fn process(url: String) -> Result[Int, String]:
     let body = await fetch(url)?
     Ok(len(body))
-}
 
-fn main() {
+fn main():
     let result = await process("https://mom-lang.org")
-    match result {
-        Ok(n)  => print(n),
-        Err(e) => print(e),
-    }
-}
+    match result:
+        Ok(n)  => print(n)
+        Err(e) => print(e)

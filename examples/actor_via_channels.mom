@@ -16,11 +16,11 @@ fn run_counter(mailbox: Channel[CounterMsg]) -> Int:
 
     while running:
         match mailbox.recv():
-            Some(Inc)      => { count = count + 1 }
-            Some(Add(n))   => { count = count + n }
-            Some(Get)      => { print(count) }
-            Some(Stop)     => { running = false }
-            None           => { running = false }
+            Some(Inc)      => count = count + 1
+            Some(Add(n))   => count = count + n
+            Some(Get)      => print(count)
+            Some(Stop)     => running = false
+            None           => running = false
     count
 
 fn main():
