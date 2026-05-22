@@ -2011,8 +2011,10 @@ fn apply_binary(left: Value, op: BinaryOp, right: Value, span: &Span) -> LangRes
         (Value::Float(l), BinaryOp::LessEqual, Value::Float(r))    => Ok(Value::Bool(l <= r)),
         (Value::Float(l), BinaryOp::Greater, Value::Float(r))      => Ok(Value::Bool(l > r)),
         (Value::Float(l), BinaryOp::GreaterEqual, Value::Float(r)) => Ok(Value::Bool(l >= r)),
-        (Value::String(l), BinaryOp::Less, Value::String(r))    => Ok(Value::Bool(l < r)),
-        (Value::String(l), BinaryOp::Greater, Value::String(r)) => Ok(Value::Bool(l > r)),
+        (Value::String(l), BinaryOp::Less, Value::String(r))         => Ok(Value::Bool(l < r)),
+        (Value::String(l), BinaryOp::LessEqual, Value::String(r))    => Ok(Value::Bool(l <= r)),
+        (Value::String(l), BinaryOp::Greater, Value::String(r))      => Ok(Value::Bool(l > r)),
+        (Value::String(l), BinaryOp::GreaterEqual, Value::String(r)) => Ok(Value::Bool(l >= r)),
         (l, op, r) => Err(error(format!("unsupported operation: {l} {op:?} {r}"), span)),
     }
 }

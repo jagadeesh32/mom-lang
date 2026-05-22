@@ -1,31 +1,17 @@
-// compiler/src/main.mom — stage-1.1 mom-in-mom compiler.
+// compiler/src/main.mom — stage-1.3 mom-in-mom compiler.
 //
-// Phase 4.1 expands the stage-1.0 compiler to a useful self-host
-// subset:
-//
-//   fn NAME(p1: T, p2: T, ...) -> T { stmts }
-//     where T ∈ { Int, Bool, () }
-//
-//   stmt = let [mut] NAME = EXPR
-//        | NAME = EXPR
-//        | print(EXPR)
-//        | if EXPR { stmts } [ else { stmts } ]
-//        | while EXPR { stmts }
-//        | return [EXPR]
-//        | EXPR
-//
-//   expr precedence (low → high):
-//        || && | == != | < <= > >= | + - | * | unary !/- | call/primary
-//
-// Anything outside that subset (generics, structs, references,
-// pattern matching, lists, async, traits) is left for stage-1.2 →
-// stage-1.4. See docs/plan.md.
+// Supports (stage-1.3 additions over 1.2):
+//   - User-defined enums with payload variants
+//   - User-defined structs with field access/mutation
+//   - List literals, push/pop/len/index operations
+//   - Pattern matching (match stmt + as a let-bound expression)
+//   - ALL generated C uses MomVal* for every value
 //
 // Driver convention:
 //   MOM_INPUT  = path to source.mom
 //   MOM_OUTPUT = path to generated .c file
 
-// ───────────────────────── data types ─────────────────────────
+// ───────────────────────── tokens ─────────────────────────
 
 enum Token:
     TFn
@@ -37,7 +23,9 @@ enum Token:
     TFor
     TIn
     TReturn
-    TDotDot
+    TEnum
+    TStruct
+    TMatch
     TTrue
     TFalse
     TEq
@@ -50,10 +38,13 @@ enum Token:
     TRParen
     TLBrace
     TRBrace
+    TLBracket
+    TRBracket
     TComma
     TSemicolon
     TColon
     TArrow
+    TFatArrow
     TEqEq
     TNeq
     TLt
@@ -63,16 +54,45 @@ enum Token:
     TAndAnd
     TOrOr
     TBang
+    TDot
+    TDotDot
     TIdent(String)
     TInt(Int)
     TStr(String)
     TEOF
+
+// ───────────────────────── types ─────────────────────────
 
 enum Type:
     TyInt
     TyBool
     TyUnit
     TyStr
+    TyList(Type)
+    TyNamed(String)
+
+// ───────────────────────── patterns ─────────────────────────
+
+enum Pattern:
+    PWild
+    PBind(String)
+    PVariant0(String)
+    PVariant1(String, String)
+    PVariant2(String, String, String)
+    PVariantN(String, [String])
+    PInt(Int)
+    PBool(Bool)
+    PStr(String)
+
+// ───────────────────────── AST ─────────────────────────
+
+struct FieldInit:
+    fname: String
+    fval: Expr
+
+struct MatchArm:
+    pattern: Pattern
+    body: [Stmt]
 
 enum Expr:
     EInt(Int)
@@ -80,6 +100,13 @@ enum Expr:
     EStr(String)
     EVar(String)
     ECall(String, [Expr])
+    EList([Expr])
+    EField(Expr, String)
+    EIndex(Expr, Expr)
+    EStructLit(String, [FieldInit])
+    EVariant0(String)
+    EVariant1(String, Expr)
+    EVariantN(String, [Expr])
     EAdd(Expr, Expr)
     ESub(Expr, Expr)
     EMul(Expr, Expr)
@@ -98,7 +125,10 @@ enum Expr:
 
 enum Stmt:
     SLet(String, Bool, Expr)
+    SLetMatch(String, Expr, [MatchArm])
     SAssign(String, Expr)
+    SFieldAssign(String, String, Expr)
+    SIndexAssign(String, Expr, Expr)
     SPrint(Expr)
     SIf(Expr, [Stmt], [Stmt])
     SWhile(Expr, [Stmt])
@@ -106,10 +136,29 @@ enum Stmt:
     SReturn(Expr)
     SReturnUnit
     SExpr(Expr)
+    SMatch(Expr, [MatchArm])
+
+// ───────────────────────── declarations ─────────────────────────
+
+struct VariantDecl:
+    vname: String
+    payload: [Type]
+
+struct EnumDecl:
+    ename: String
+    variants: [VariantDecl]
+
+struct FieldDecl:
+    dname: String
+    dtype: Type
+
+struct StructDecl:
+    sname: String
+    fields: [FieldDecl]
 
 struct Param:
-    name: String
-    ty: Type
+    pname: String
+    pty: Type
 
 struct Fn:
     name: String
@@ -117,17 +166,58 @@ struct Fn:
     ret: Type
     body: [Stmt]
 
+struct Program:
+    enums: [EnumDecl]
+    structs: [StructDecl]
+    fns: [Fn]
+
 struct ParseState:
     tokens: [Token]
     pos: Int
 
-struct EmitResult:
-    src: String
-    ty: Type
-
 struct LocalEntry:
-    name: String
-    ty: Type
+    lname: String
+    lty: Type
+
+// ───────────────────────── char helpers ─────────────────────────
+
+fn char_is_digit(c: String) -> Bool:
+    c == "0" || c == "1" || c == "2" || c == "3" || c == "4" || c == "5" || c == "6" || c == "7" || c == "8" || c == "9"
+
+fn char_is_upper(c: String) -> Bool:
+    c >= "A" && c <= "Z"
+
+fn char_is_lower(c: String) -> Bool:
+    (c >= "a" && c <= "z") || c == "_"
+
+fn char_is_alpha(c: String) -> Bool:
+    char_is_upper(c) || char_is_lower(c)
+
+fn char_is_alnum(c: String) -> Bool:
+    char_is_digit(c) || char_is_alpha(c)
+
+fn char_digit_val(c: String) -> Int:
+    if c == "0":
+        return 0
+    if c == "1":
+        return 1
+    if c == "2":
+        return 2
+    if c == "3":
+        return 3
+    if c == "4":
+        return 4
+    if c == "5":
+        return 5
+    if c == "6":
+        return 6
+    if c == "7":
+        return 7
+    if c == "8":
+        return 8
+    if c == "9":
+        return 9
+    0
 
 // ───────────────────────── lexer ─────────────────────────
 
@@ -151,6 +241,12 @@ fn lex(source: String) -> [Token]:
         else if c == "%":
             push(tokens, TPercent)
             i = i + 1
+        else if c == "[":
+            push(tokens, TLBracket)
+            i = i + 1
+        else if c == "]":
+            push(tokens, TRBracket)
+            i = i + 1
         else if c == "\"":
             i = i + 1
             let mut text = ""
@@ -170,7 +266,7 @@ fn lex(source: String) -> [Token]:
                     else if esc == "0":
                         text = text + "\0"
                     else:
-                        panic("unknown escape sequence in string literal")
+                        panic("unknown escape in string literal")
                     i = i + 2
                 else:
                     text = text + source[i]
@@ -211,7 +307,8 @@ fn lex(source: String) -> [Token]:
                 push(tokens, TDotDot)
                 i = i + 2
             else:
-                panic("unexpected '.' (member access not supported in stage-1.2)")
+                push(tokens, TDot)
+                i = i + 1
         else if c == "-":
             if i + 1 < n && source[i + 1] == ">":
                 push(tokens, TArrow)
@@ -222,6 +319,9 @@ fn lex(source: String) -> [Token]:
         else if c == "=":
             if i + 1 < n && source[i + 1] == "=":
                 push(tokens, TEqEq)
+                i = i + 2
+            else if i + 1 < n && source[i + 1] == ">":
+                push(tokens, TFatArrow)
                 i = i + 2
             else:
                 push(tokens, TEq)
@@ -252,24 +352,22 @@ fn lex(source: String) -> [Token]:
                 push(tokens, TAndAnd)
                 i = i + 2
             else:
-                panic("'&' as a borrow operator is not supported in stage-1.1")
+                panic("unexpected '&'")
         else if c == "|":
             if i + 1 < n && source[i + 1] == "|":
                 push(tokens, TOrOr)
                 i = i + 2
             else:
-                panic("unexpected '|' (stage-1.1 has no pipelines yet)")
-        else if is_digit(c):
+                panic("unexpected '|' (use || for logical or)")
+        else if char_is_digit(c):
             let mut value = 0
-            while i < n && is_digit(source[i]):
-                let d = parse_int(source[i])
-                let dv = match d { Some(v) => v, None => 0 }
-                value = value * 10 + dv
+            while i < n && char_is_digit(source[i]):
+                value = value * 10 + char_digit_val(source[i])
                 i = i + 1
             push(tokens, TInt(value))
-        else if is_alpha(c):
+        else if char_is_alpha(c):
             let mut text = ""
-            while i < n && is_alnum(source[i]):
+            while i < n && char_is_alnum(source[i]):
                 text = text + source[i]
                 i = i + 1
             if text == "fn":
@@ -290,6 +388,12 @@ fn lex(source: String) -> [Token]:
                 push(tokens, TIn)
             else if text == "return":
                 push(tokens, TReturn)
+            else if text == "enum":
+                push(tokens, TEnum)
+            else if text == "struct":
+                push(tokens, TStruct)
+            else if text == "match":
+                push(tokens, TMatch)
             else if text == "true":
                 push(tokens, TTrue)
             else if text == "false":
@@ -297,12 +401,12 @@ fn lex(source: String) -> [Token]:
             else:
                 push(tokens, TIdent(text))
         else:
-            panic("unrecognised character in stage-1.1 lexer: " + c)
+            panic("unrecognised character: " + c)
 
     push(tokens, TEOF)
     tokens
 
-// ───────────────────────── parser helpers ─────────────────────────
+// ───────────────────────── parser state helpers ─────────────────────────
 
 fn peek(state: ParseState) -> Token:
     state.tokens[state.pos]
@@ -312,61 +416,210 @@ fn advance(state: ParseState) -> Token:
     state.pos = state.pos + 1
     t
 
-fn is_token_eq(t: Token) -> Bool:
-    match t:
-        TEq => true
-        _   => false
-
-fn is_token_lparen(t: Token) -> Bool:
-    match t:
-        TLParen => true
-        _       => false
-
-fn is_token_rparen(t: Token) -> Bool:
-    match t:
-        TRParen => true
-        _       => false
-
-fn is_token_lbrace(t: Token) -> Bool:
-    match t:
-        TLBrace => true
-        _       => false
-
-fn is_token_rbrace(t: Token) -> Bool:
-    match t:
-        TRBrace => true
-        _       => false
-
-fn is_token_colon(t: Token) -> Bool:
-    match t:
-        TColon => true
-        _      => false
-
-fn is_token_fn(t: Token) -> Bool:
-    match t:
-        TFn => true
-        _   => false
-
-fn is_token_eof(t: Token) -> Bool:
+fn is_eof(t: Token) -> Bool:
     match t:
         TEOF => true
         _    => false
 
-fn is_token_comma(t: Token) -> Bool:
+fn is_tfn(t: Token) -> Bool:
+    match t:
+        TFn => true
+        _   => false
+
+fn is_tenum(t: Token) -> Bool:
+    match t:
+        TEnum => true
+        _     => false
+
+fn is_tstruct(t: Token) -> Bool:
+    match t:
+        TStruct => true
+        _       => false
+
+fn is_tmatch(t: Token) -> Bool:
+    match t:
+        TMatch => true
+        _      => false
+
+fn is_tlet(t: Token) -> Bool:
+    match t:
+        TLet => true
+        _    => false
+
+fn is_tmut(t: Token) -> Bool:
+    match t:
+        TMut => true
+        _    => false
+
+fn is_treturn(t: Token) -> Bool:
+    match t:
+        TReturn => true
+        _       => false
+
+fn is_tif(t: Token) -> Bool:
+    match t:
+        TIf => true
+        _   => false
+
+fn is_telse(t: Token) -> Bool:
+    match t:
+        TElse => true
+        _     => false
+
+fn is_twhile(t: Token) -> Bool:
+    match t:
+        TWhile => true
+        _      => false
+
+fn is_tfor(t: Token) -> Bool:
+    match t:
+        TFor => true
+        _    => false
+
+fn is_tin(t: Token) -> Bool:
+    match t:
+        TIn => true
+        _   => false
+
+fn is_teq(t: Token) -> Bool:
+    match t:
+        TEq => true
+        _   => false
+
+fn is_tcolon(t: Token) -> Bool:
+    match t:
+        TColon => true
+        _      => false
+
+fn is_tarrow(t: Token) -> Bool:
+    match t:
+        TArrow => true
+        _      => false
+
+fn is_tfattarrow(t: Token) -> Bool:
+    match t:
+        TFatArrow => true
+        _         => false
+
+fn is_tcomma(t: Token) -> Bool:
     match t:
         TComma => true
         _      => false
 
-fn is_token_semicolon(t: Token) -> Bool:
+fn is_tsemicolon(t: Token) -> Bool:
     match t:
         TSemicolon => true
         _          => false
 
-fn is_token_rbrace_or_semicolon(t: Token) -> Bool:
+fn is_tlparen(t: Token) -> Bool:
     match t:
-        TRBrace    => true
-        TSemicolon => true
-        _          => false
+        TLParen => true
+        _       => false
+
+fn is_trparen(t: Token) -> Bool:
+    match t:
+        TRParen => true
+        _       => false
+
+fn is_tlbrace(t: Token) -> Bool:
+    match t:
+        TLBrace => true
+        _       => false
+
+fn is_trbrace(t: Token) -> Bool:
+    match t:
+        TRBrace => true
+        _       => false
+
+fn is_tlbracket(t: Token) -> Bool:
+    match t:
+        TLBracket => true
+        _         => false
+
+fn is_trbracket(t: Token) -> Bool:
+    match t:
+        TRBracket => true
+        _         => false
+
+fn is_tdot(t: Token) -> Bool:
+    match t:
+        TDot => true
+        _    => false
+
+fn is_tdotdot(t: Token) -> Bool:
+    match t:
+        TDotDot => true
+        _       => false
+
+fn is_tplus(t: Token) -> Bool:
+    match t:
+        TPlus => true
+        _     => false
+
+fn is_tminus(t: Token) -> Bool:
+    match t:
+        TMinus => true
+        _      => false
+
+fn is_tstar(t: Token) -> Bool:
+    match t:
+        TStar => true
+        _     => false
+
+fn is_tslash(t: Token) -> Bool:
+    match t:
+        TSlash => true
+        _      => false
+
+fn is_tpercent(t: Token) -> Bool:
+    match t:
+        TPercent => true
+        _        => false
+
+fn is_teqeq(t: Token) -> Bool:
+    match t:
+        TEqEq => true
+        _     => false
+
+fn is_tneq(t: Token) -> Bool:
+    match t:
+        TNeq => true
+        _    => false
+
+fn is_tlt(t: Token) -> Bool:
+    match t:
+        TLt => true
+        _   => false
+
+fn is_tle(t: Token) -> Bool:
+    match t:
+        TLe => true
+        _   => false
+
+fn is_tgt(t: Token) -> Bool:
+    match t:
+        TGt => true
+        _   => false
+
+fn is_tge(t: Token) -> Bool:
+    match t:
+        TGe => true
+        _   => false
+
+fn is_tandand(t: Token) -> Bool:
+    match t:
+        TAndAnd => true
+        _       => false
+
+fn is_toror(t: Token) -> Bool:
+    match t:
+        TOrOr => true
+        _     => false
+
+fn is_tbang(t: Token) -> Bool:
+    match t:
+        TBang => true
+        _     => false
 
 fn expect_ident(state: ParseState) -> String:
     let t = advance(state)
@@ -374,256 +627,195 @@ fn expect_ident(state: ParseState) -> String:
         TIdent(name) => name
         _            => panic("expected identifier")
 
-fn expect_eq(state: ParseState):
+fn expect_colon(state: ParseState):
     let t = advance(state)
-    if !is_token_eq(t):
-        panic("expected '='")
+    if !is_tcolon(t):
+        panic("expected ':'")
 
 fn expect_lparen(state: ParseState):
     let t = advance(state)
-    if !is_token_lparen(t):
+    if !is_tlparen(t):
         panic("expected '('")
 
 fn expect_rparen(state: ParseState):
     let t = advance(state)
-    if !is_token_rparen(t):
+    if !is_trparen(t):
         panic("expected ')'")
 
 fn expect_lbrace(state: ParseState):
     let t = advance(state)
-    if !is_token_lbrace(t):
+    if !is_tlbrace(t):
         panic("expected '{'")
 
 fn expect_rbrace(state: ParseState):
     let t = advance(state)
-    if !is_token_rbrace(t):
+    if !is_trbrace(t):
         panic("expected '}'")
 
-fn expect_colon(state: ParseState):
+fn expect_lbracket(state: ParseState):
     let t = advance(state)
-    if !is_token_colon(t):
-        panic("expected ':'")
+    if !is_tlbracket(t):
+        panic("expected '['")
+
+fn expect_rbracket(state: ParseState):
+    let t = advance(state)
+    if !is_trbracket(t):
+        panic("expected ']'")
+
+fn expect_eq(state: ParseState):
+    let t = advance(state)
+    if !is_teq(t):
+        panic("expected '='")
+
+fn expect_fatarrow(state: ParseState):
+    let t = advance(state)
+    if !is_tfattarrow(t):
+        panic("expected '=>'")
+
+fn expect_in(state: ParseState):
+    let t = advance(state)
+    if !is_tin(t):
+        panic("expected 'in'")
+
+fn expect_dotdot(state: ParseState):
+    let t = advance(state)
+    if !is_tdotdot(t):
+        panic("expected '..'")
 
 fn skip_optional_semicolon(state: ParseState):
     let t = peek(state)
-    if is_token_semicolon(t):
-        let tok = advance(state)
+    if is_tsemicolon(t):
+        let dummy = advance(state)
 
 // ───────────────────────── type parser ─────────────────────────
 
 fn parse_type(state: ParseState) -> Type:
     let t = advance(state)
+    if is_tlparen(t):
+        expect_rparen(state)
+        return TyUnit
+    if is_tlbracket(t):
+        let elem = parse_type(state)
+        expect_rbracket(state)
+        return TyList(elem)
     match t:
-        TLParen      => parse_type_unit(state)
         TIdent(name) => parse_type_name(name)
-        _            => panic("expected a type")
-
-fn parse_type_unit(state: ParseState) -> Type:
-    expect_rparen(state)
-    TyUnit
+        _            => panic("expected type name")
 
 fn parse_type_name(name: String) -> Type:
     if name == "Int":
-        TyInt
-    else if name == "Bool":
-        TyBool
-    else if name == "Unit":
-        TyUnit
-    else if name == "String" || name == "Str":
-        TyStr
-    else:
-        panic("unsupported type in stage-1.2: " + name)
+        return TyInt
+    if name == "Bool":
+        return TyBool
+    if name == "Unit":
+        return TyUnit
+    if name == "String" || name == "Str":
+        return TyStr
+    TyNamed(name)
+
+// ───────────────────────── pattern parser ─────────────────────────
+
+fn parse_pattern(state: ParseState) -> Pattern:
+    let t = advance(state)
+    if is_tint_token(t):
+        return parse_pattern_int(t)
+    if is_tstr_token(t):
+        return parse_pattern_str(t)
+    if is_ttrue(t):
+        return PBool(true)
+    if is_tfalse(t):
+        return PBool(false)
+    match t:
+        TIdent(name) => parse_pattern_ident(state, name)
+        _            => panic("expected pattern")
+
+fn is_tint_token(t: Token) -> Bool:
+    match t:
+        TInt(_) => true
+        _       => false
+
+fn is_tstr_token(t: Token) -> Bool:
+    match t:
+        TStr(_) => true
+        _       => false
+
+fn is_ttrue(t: Token) -> Bool:
+    match t:
+        TTrue => true
+        _     => false
+
+fn is_tfalse(t: Token) -> Bool:
+    match t:
+        TFalse => true
+        _      => false
+
+fn get_tint_val(t: Token) -> Int:
+    match t:
+        TInt(n) => n
+        _       => 0
+
+fn get_tstr_val(t: Token) -> String:
+    match t:
+        TStr(s) => s
+        _       => ""
+
+fn parse_pattern_int(t: Token) -> Pattern:
+    PInt(get_tint_val(t))
+
+fn parse_pattern_str(t: Token) -> Pattern:
+    PStr(get_tstr_val(t))
+
+fn parse_pattern_ident(state: ParseState, name: String) -> Pattern:
+    if name == "_":
+        return PWild
+    let t = peek(state)
+    if is_tlparen(t):
+        let dummy = advance(state)
+        let t2 = peek(state)
+        if is_trparen(t2):
+            let dummy2 = advance(state)
+            return PVariant0(name)
+        // Collect all binding names until ")"
+        let bindings = []
+        let mut pdone = false
+        let mut pfirst = true
+        while !pdone:
+            if !pfirst:
+                let sep = advance(state)
+                if !is_tcomma(sep):
+                    panic("expected ',' or ')' in pattern")
+            // Each binding could be an ident OR _ (wildcard)
+            let b = expect_ident(state)
+            push(bindings, b)
+            pfirst = false
+            let nt = peek(state)
+            if is_trparen(nt):
+                let dummy3 = advance(state)
+                pdone = true
+        // Create the appropriate pattern variant
+        let nb = len(bindings)
+        if nb == 1:
+            return PVariant1(name, bindings[0])
+        if nb == 2:
+            return PVariant2(name, bindings[0], bindings[1])
+        return PVariantN(name, bindings)
+    if char_is_upper(name):
+        return PVariant0(name)
+    PBind(name)
 
 // ───────────────────────── expression parser ─────────────────────────
 
-fn parse_primary(state: ParseState) -> Expr:
-    let t = advance(state)
-    match t:
-        TInt(n)      => EInt(n)
-        TStr(s)      => EStr(s)
-        TTrue        => EBool(true)
-        TFalse       => EBool(false)
-        TBang        => ENot(parse_unary(state))
-        TMinus       => ENeg(parse_unary(state))
-        TLParen      => parse_primary_paren(state)
-        TIdent(name) => parse_primary_ident(state, name)
-        _            => panic("expected expression")
+fn parse_expr(state: ParseState) -> Expr:
+    parse_or(state)
 
-fn parse_primary_paren(state: ParseState) -> Expr:
-    let inner = parse_expr(state)
-    expect_rparen(state)
-    inner
-
-fn parse_primary_ident(state: ParseState, name: String) -> Expr:
-    let t = peek(state)
-    match t:
-        TLParen => parse_call(state, name)
-        _       => EVar(name)
-
-fn parse_call(state: ParseState, name: String) -> Expr:
-    advance(state)
-    let args = []
-    let mut first = true
+fn parse_or(state: ParseState) -> Expr:
+    let mut left = parse_and(state)
     let mut done = false
     while !done:
         let t = peek(state)
-        if is_token_rparen(t):
-            advance(state)
-            done = true
-        else:
-            if !first:
-                let sep = advance(state)
-                if !is_token_comma(sep):
-                    panic("expected ',' or ')' in call")
-            push(args, parse_expr(state))
-            first = false
-    ECall(name, args)
-
-fn parse_unary(state: ParseState) -> Expr:
-    let t = peek(state)
-    match t:
-        TBang  => parse_unary_not(state)
-        TMinus => parse_unary_neg(state)
-        _      => parse_primary(state)
-
-fn parse_unary_not(state: ParseState) -> Expr:
-    advance(state)
-    ENot(parse_unary(state))
-
-fn parse_unary_neg(state: ParseState) -> Expr:
-    advance(state)
-    ENeg(parse_unary(state))
-
-fn is_token_star(t: Token) -> Bool:
-    match t:
-        TStar => true
-        _     => false
-
-fn is_token_slash(t: Token) -> Bool:
-    match t:
-        TSlash => true
-        _      => false
-
-fn is_token_percent(t: Token) -> Bool:
-    match t:
-        TPercent => true
-        _        => false
-
-fn is_token_plus(t: Token) -> Bool:
-    match t:
-        TPlus => true
-        _     => false
-
-fn is_token_minus(t: Token) -> Bool:
-    match t:
-        TMinus => true
-        _      => false
-
-fn is_token_lt(t: Token) -> Bool:
-    match t:
-        TLt => true
-        _   => false
-
-fn is_token_le(t: Token) -> Bool:
-    match t:
-        TLe => true
-        _   => false
-
-fn is_token_gt(t: Token) -> Bool:
-    match t:
-        TGt => true
-        _   => false
-
-fn is_token_ge(t: Token) -> Bool:
-    match t:
-        TGe => true
-        _   => false
-
-fn is_token_eqeq(t: Token) -> Bool:
-    match t:
-        TEqEq => true
-        _     => false
-
-fn is_token_neq(t: Token) -> Bool:
-    match t:
-        TNeq => true
-        _    => false
-
-fn is_token_andand(t: Token) -> Bool:
-    match t:
-        TAndAnd => true
-        _       => false
-
-fn is_token_oror(t: Token) -> Bool:
-    match t:
-        TOrOr => true
-        _     => false
-
-fn parse_mul(state: ParseState) -> Expr:
-    let mut left = parse_unary(state)
-    let mut done = false
-    while !done:
-        let t = peek(state)
-        if is_token_star(t):
-            advance(state)
-            left = EMul(left, parse_unary(state))
-        else if is_token_slash(t):
-            advance(state)
-            left = EDiv(left, parse_unary(state))
-        else if is_token_percent(t):
-            advance(state)
-            left = EMod(left, parse_unary(state))
-        else:
-            done = true
-    left
-
-fn parse_add(state: ParseState) -> Expr:
-    let mut left = parse_mul(state)
-    let mut done = false
-    while !done:
-        let t = peek(state)
-        if is_token_plus(t):
-            advance(state)
-            left = EAdd(left, parse_mul(state))
-        else if is_token_minus(t):
-            advance(state)
-            left = ESub(left, parse_mul(state))
-        else:
-            done = true
-    left
-
-fn parse_rel(state: ParseState) -> Expr:
-    let mut left = parse_add(state)
-    let mut done = false
-    while !done:
-        let t = peek(state)
-        if is_token_lt(t):
-            advance(state)
-            left = ELt(left, parse_add(state))
-        else if is_token_le(t):
-            advance(state)
-            left = ELe(left, parse_add(state))
-        else if is_token_gt(t):
-            advance(state)
-            left = EGt(left, parse_add(state))
-        else if is_token_ge(t):
-            advance(state)
-            left = EGe(left, parse_add(state))
-        else:
-            done = true
-    left
-
-fn parse_eq_expr(state: ParseState) -> Expr:
-    let mut left = parse_rel(state)
-    let mut done = false
-    while !done:
-        let t = peek(state)
-        if is_token_eqeq(t):
-            advance(state)
-            left = EEq(left, parse_rel(state))
-        else if is_token_neq(t):
-            advance(state)
-            left = ENe(left, parse_rel(state))
+        if is_toror(t):
+            let dummy = advance(state)
+            left = EOr(left, parse_and(state))
         else:
             done = true
     left
@@ -633,27 +825,264 @@ fn parse_and(state: ParseState) -> Expr:
     let mut done = false
     while !done:
         let t = peek(state)
-        if is_token_andand(t):
-            advance(state)
+        if is_tandand(t):
+            let dummy = advance(state)
             left = EAnd(left, parse_eq_expr(state))
         else:
             done = true
     left
 
-fn parse_or(state: ParseState) -> Expr:
-    let mut left = parse_and(state)
+fn parse_eq_expr(state: ParseState) -> Expr:
+    let mut left = parse_rel(state)
     let mut done = false
     while !done:
         let t = peek(state)
-        if is_token_oror(t):
-            advance(state)
-            left = EOr(left, parse_and(state))
+        if is_teqeq(t):
+            let dummy = advance(state)
+            left = EEq(left, parse_rel(state))
+        else if is_tneq(t):
+            let dummy = advance(state)
+            left = ENe(left, parse_rel(state))
         else:
             done = true
     left
 
-fn parse_expr(state: ParseState) -> Expr:
-    parse_or(state)
+fn parse_rel(state: ParseState) -> Expr:
+    let mut left = parse_add(state)
+    let mut done = false
+    while !done:
+        let t = peek(state)
+        if is_tlt(t):
+            let dummy = advance(state)
+            left = ELt(left, parse_add(state))
+        else if is_tle(t):
+            let dummy = advance(state)
+            left = ELe(left, parse_add(state))
+        else if is_tgt(t):
+            let dummy = advance(state)
+            left = EGt(left, parse_add(state))
+        else if is_tge(t):
+            let dummy = advance(state)
+            left = EGe(left, parse_add(state))
+        else:
+            done = true
+    left
+
+fn parse_add(state: ParseState) -> Expr:
+    let mut left = parse_mul(state)
+    let mut done = false
+    while !done:
+        let t = peek(state)
+        if is_tplus(t):
+            let dummy = advance(state)
+            left = EAdd(left, parse_mul(state))
+        else if is_tminus(t):
+            let dummy = advance(state)
+            left = ESub(left, parse_mul(state))
+        else:
+            done = true
+    left
+
+fn parse_mul(state: ParseState) -> Expr:
+    let mut left = parse_unary(state)
+    let mut done = false
+    while !done:
+        let t = peek(state)
+        if is_tstar(t):
+            let dummy = advance(state)
+            left = EMul(left, parse_unary(state))
+        else if is_tslash(t):
+            let dummy = advance(state)
+            left = EDiv(left, parse_unary(state))
+        else if is_tpercent(t):
+            let dummy = advance(state)
+            left = EMod(left, parse_unary(state))
+        else:
+            done = true
+    left
+
+fn parse_unary(state: ParseState) -> Expr:
+    let t = peek(state)
+    if is_tbang(t):
+        let dummy = advance(state)
+        return ENot(parse_unary(state))
+    if is_tminus(t):
+        let dummy = advance(state)
+        return ENeg(parse_unary(state))
+    parse_postfix(state)
+
+fn parse_postfix(state: ParseState) -> Expr:
+    let mut base = parse_primary(state)
+    let mut done = false
+    while !done:
+        let t = peek(state)
+        if is_tdot(t):
+            let dummy = advance(state)
+            let field = expect_ident(state)
+            base = EField(base, field)
+        else if is_tlbracket(t):
+            let dummy = advance(state)
+            let idx = parse_expr(state)
+            expect_rbracket(state)
+            base = EIndex(base, idx)
+        else:
+            done = true
+    base
+
+fn parse_primary(state: ParseState) -> Expr:
+    let t = advance(state)
+    if is_tint_token(t):
+        return EInt(get_tint_val(t))
+    if is_tstr_token(t):
+        return EStr(get_tstr_val(t))
+    if is_ttrue(t):
+        return EBool(true)
+    if is_tfalse(t):
+        return EBool(false)
+    if is_tbang(t):
+        return ENot(parse_unary(state))
+    if is_tminus(t):
+        return ENeg(parse_unary(state))
+    if is_tlparen(t):
+        let t2 = peek(state)
+        if is_trparen(t2):
+            let dummy = advance(state)
+            return EVar("__unit__")
+        let inner = parse_expr(state)
+        expect_rparen(state)
+        return inner
+    if is_tlbracket(t):
+        return parse_list_literal(state)
+    match t:
+        TIdent(name) => parse_primary_ident(state, name)
+        _            => panic("expected expression")
+
+fn parse_list_literal(state: ParseState) -> Expr:
+    let items = []
+    let t = peek(state)
+    if is_trbracket(t):
+        let dummy = advance(state)
+        return EList(items)
+    let mut first = true
+    let mut done = false
+    while !done:
+        if !first:
+            let sep = advance(state)
+            if !is_tcomma(sep):
+                panic("expected ',' in list literal")
+        push(items, parse_expr(state))
+        first = false
+        let nt = peek(state)
+        if is_trbracket(nt):
+            let dummy = advance(state)
+            done = true
+    EList(items)
+
+fn is_tident_token(t: Token) -> Bool:
+    match t:
+        TIdent(_) => true
+        _         => false
+
+fn looks_like_struct_lit_at(state: ParseState) -> Bool:
+    // state.pos points to '{'. Check if { IDENT : or { } pattern.
+    let pos = state.pos
+    let n = len(state.tokens)
+    if pos + 1 >= n:
+        return false
+    let t1 = state.tokens[pos + 1]
+    if is_trbrace(t1):
+        return true
+    if pos + 2 >= n:
+        return false
+    let t2 = state.tokens[pos + 2]
+    if is_tident_token(t1) && is_tcolon(t2):
+        return true
+    false
+
+fn parse_primary_ident(state: ParseState, name: String) -> Expr:
+    let t = peek(state)
+    if is_tlparen(t):
+        return parse_call(state, name)
+    if is_tlbrace(t) && looks_like_struct_lit_at(state):
+        return parse_struct_lit(state, name)
+    EVar(name)
+
+fn parse_struct_lit(state: ParseState, name: String) -> Expr:
+    let dummy = advance(state)
+    let fields = []
+    let t = peek(state)
+    if is_trbrace(t):
+        let dummy2 = advance(state)
+        return EStructLit(name, fields)
+    let mut first = true
+    let mut done = false
+    while !done:
+        if !first:
+            let sep = advance(state)
+            if !is_tcomma(sep):
+                panic("expected ',' in struct literal")
+        let fn_name = expect_ident(state)
+        expect_colon(state)
+        let fv = parse_expr(state)
+        push(fields, FieldInit { fname: fn_name, fval: fv })
+        first = false
+        let nt = peek(state)
+        if is_trbrace(nt):
+            let dummy3 = advance(state)
+            done = true
+    EStructLit(name, fields)
+
+fn parse_call(state: ParseState, name: String) -> Expr:
+    let dummy = advance(state)
+    let args = []
+    let t = peek(state)
+    if is_trparen(t):
+        let dummy2 = advance(state)
+        return ECall(name, args)
+    let mut first = true
+    let mut done = false
+    while !done:
+        if !first:
+            let sep = advance(state)
+            if !is_tcomma(sep):
+                panic("expected ',' or ')' in call")
+        push(args, parse_expr(state))
+        first = false
+        let nt = peek(state)
+        if is_trparen(nt):
+            let dummy3 = advance(state)
+            done = true
+    ECall(name, args)
+
+// ───────────────────────── match arm parser ─────────────────────────
+
+fn parse_match_arms_brace(state: ParseState) -> [MatchArm]:
+    expect_lbrace(state)
+    let arms = []
+    let mut done = false
+    while !done:
+        let t = peek(state)
+        if is_trbrace(t):
+            let dummy = advance(state)
+            done = true
+        else:
+            let pat = parse_pattern(state)
+            expect_fatarrow(state)
+            let body = parse_arm_body(state)
+            push(arms, MatchArm { pattern: pat, body: body })
+            let nt = peek(state)
+            if is_tcomma(nt):
+                let dummy2 = advance(state)
+    arms
+
+fn parse_arm_body(state: ParseState) -> [Stmt]:
+    let t = peek(state)
+    if is_tlbrace(t):
+        return parse_block(state)
+    let e = parse_expr(state)
+    let stmts = []
+    push(stmts, SReturn(e))
+    stmts
 
 // ───────────────────────── statement parser ─────────────────────────
 
@@ -663,8 +1092,8 @@ fn parse_block(state: ParseState) -> [Stmt]:
     let mut done = false
     while !done:
         let t = peek(state)
-        if is_token_rbrace(t):
-            advance(state)
+        if is_trbrace(t):
+            let dummy = advance(state)
             done = true
         else:
             push(stmts, parse_stmt(state))
@@ -672,270 +1101,375 @@ fn parse_block(state: ParseState) -> [Stmt]:
 
 fn parse_stmt(state: ParseState) -> Stmt:
     let t = peek(state)
-    match t:
-        TLet    => parse_stmt_let(state)
-        TReturn => parse_stmt_return(state)
-        TIf     => parse_stmt_if(state)
-        TWhile  => parse_stmt_while(state)
-        TFor    => parse_stmt_for(state)
-        TIdent(name) => parse_stmt_ident(state, name)
-        _       => panic("expected statement")
-
-fn is_token_in(t: Token) -> Bool:
-    match t:
-        TIn => true
-        _   => false
-
-fn is_token_dotdot(t: Token) -> Bool:
-    match t:
-        TDotDot => true
-        _       => false
-
-fn parse_stmt_for(state: ParseState) -> Stmt:
-    // `for NAME in LO..HI { body }`
-    advance(state)
-    let name = expect_ident(state)
-    let tin = advance(state)
-    if !is_token_in(tin):
-        panic("expected 'in' in for-loop")
-    let lo = parse_expr(state)
-    let tdot = advance(state)
-    if !is_token_dotdot(tdot):
-        panic("expected '..' in for-loop range")
-    let hi = parse_expr(state)
-    let body = parse_block(state)
-    SFor(name, lo, hi, body)
+    if is_tlet(t):
+        return parse_stmt_let(state)
+    if is_treturn(t):
+        return parse_stmt_return(state)
+    if is_tif(t):
+        return parse_stmt_if(state)
+    if is_twhile(t):
+        return parse_stmt_while(state)
+    if is_tfor(t):
+        return parse_stmt_for(state)
+    if is_tmatch(t):
+        return parse_stmt_match(state)
+    parse_stmt_expr_or_assign(state)
 
 fn parse_stmt_let(state: ParseState) -> Stmt:
-    advance(state)
-    let t = peek(state)
-    let is_mut = is_token_mut(t, state)
+    let dummy = advance(state)
+    let is_mut = parse_optional_mut(state)
     let name = expect_ident(state)
+    let t = peek(state)
+    if is_tcolon(t):
+        let dummy2 = advance(state)
+        let dummy3 = parse_type(state)
     expect_eq(state)
+    let t2 = peek(state)
+    if is_tmatch(t2):
+        let dummy4 = advance(state)
+        let scrutinee = parse_expr(state)
+        let arms = parse_match_arms_brace(state)
+        skip_optional_semicolon(state)
+        return SLetMatch(name, scrutinee, arms)
     let value = parse_expr(state)
     skip_optional_semicolon(state)
     SLet(name, is_mut, value)
 
-fn is_token_mut(t: Token, state: ParseState) -> Bool:
-    match t:
-        TMut => advance_and_true(state)
-        _    => false
-
-fn advance_and_true(state: ParseState) -> Bool:
-    advance(state)
-    true
+fn parse_optional_mut(state: ParseState) -> Bool:
+    let t = peek(state)
+    if is_tmut(t):
+        let dummy = advance(state)
+        return true
+    false
 
 fn parse_stmt_return(state: ParseState) -> Stmt:
-    advance(state)
+    let dummy = advance(state)
     let t = peek(state)
-    if is_token_rbrace(t):
-        SReturnUnit
-    else if is_token_semicolon(t):
-        parse_stmt_return_unit_semi(state)
-    else:
-        parse_stmt_return_value(state)
-
-fn parse_stmt_return_unit_semi(state: ParseState) -> Stmt:
-    advance(state)
-    SReturnUnit
-
-fn parse_stmt_return_value(state: ParseState) -> Stmt:
+    if is_trbrace(t) || is_tsemicolon(t):
+        skip_optional_semicolon(state)
+        return SReturnUnit
     let v = parse_expr(state)
     skip_optional_semicolon(state)
     SReturn(v)
 
 fn parse_stmt_if(state: ParseState) -> Stmt:
-    advance(state)
+    let dummy = advance(state)
     let cond = parse_expr(state)
     let then_block = parse_block(state)
     let t = peek(state)
-    let else_block = parse_else_block(state, t)
-    SIf(cond, then_block, else_block)
-
-fn parse_else_block(state: ParseState, t: Token) -> [Stmt]:
-    match t:
-        TElse => parse_else_block_body(state)
-        _     => []
-
-fn parse_else_block_body(state: ParseState) -> [Stmt]:
-    advance(state)
-    parse_block(state)
+    if is_telse(t):
+        let dummy2 = advance(state)
+        let t2 = peek(state)
+        if is_tif(t2):
+            let nested = parse_stmt_if(state)
+            let else_block = []
+            push(else_block, nested)
+            return SIf(cond, then_block, else_block)
+        let else_block = parse_block(state)
+        return SIf(cond, then_block, else_block)
+    SIf(cond, then_block, [])
 
 fn parse_stmt_while(state: ParseState) -> Stmt:
-    advance(state)
+    let dummy = advance(state)
     let cond = parse_expr(state)
     let body = parse_block(state)
     SWhile(cond, body)
 
-fn parse_stmt_ident(state: ParseState, name: String) -> Stmt:
-    advance(state)
-    if name == "print" || name == "println":
-        parse_stmt_print(state)
-    else:
-        parse_stmt_ident_after_name(state, name)
+fn parse_stmt_for(state: ParseState) -> Stmt:
+    let dummy = advance(state)
+    let name = expect_ident(state)
+    expect_in(state)
+    let lo = parse_expr(state)
+    expect_dotdot(state)
+    let hi = parse_expr(state)
+    let body = parse_block(state)
+    SFor(name, lo, hi, body)
 
-fn parse_stmt_print(state: ParseState) -> Stmt:
-    expect_lparen(state)
-    let arg = parse_expr(state)
-    expect_rparen(state)
-    skip_optional_semicolon(state)
-    SPrint(arg)
+fn parse_stmt_match(state: ParseState) -> Stmt:
+    let dummy = advance(state)
+    let scrutinee = parse_expr(state)
+    let arms = parse_match_arms_brace(state)
+    SMatch(scrutinee, arms)
 
-fn parse_stmt_ident_after_name(state: ParseState, name: String) -> Stmt:
+fn parse_stmt_expr_or_assign(state: ParseState) -> Stmt:
+    let base = parse_postfix(state)
     let t = peek(state)
-    match t:
-        TEq     => parse_stmt_assign(state, name)
-        TLParen => parse_stmt_call(state, name)
-        _       => panic("expected '=' or '(' after identifier in statement")
-
-fn parse_stmt_assign(state: ParseState, name: String) -> Stmt:
-    advance(state)
-    let value = parse_expr(state)
+    if is_teq(t):
+        let dummy = advance(state)
+        let value = parse_expr(state)
+        skip_optional_semicolon(state)
+        return parse_assign_target(base, value)
+    if is_tplus(t) || is_tminus(t):
+        let t2 = peek_ahead(state)
+        if is_teq(t2):
+            panic("compound assignment not supported in stage-1.3")
+    let full_expr = finish_expr_from_postfix(state, base)
     skip_optional_semicolon(state)
-    SAssign(name, value)
+    SExpr(full_expr)
 
-fn parse_stmt_call(state: ParseState, name: String) -> Stmt:
-    advance(state)
-    let args = []
-    let mut first = true
+fn peek_ahead(state: ParseState) -> Token:
+    if state.pos + 1 < len(state.tokens):
+        return state.tokens[state.pos + 1]
+    TEOF
+
+fn finish_expr_from_postfix(state: ParseState, base: Expr) -> Expr:
+    // Apply all binary operators in precedence order, starting from a
+    // pre-parsed postfix expression.  We loop so that `a + b + c` parses
+    // correctly (left-associative at the add/mul level).
+    let mut left = finish_oror(state, base)
+    left
+
+fn finish_oror(state: ParseState, base: Expr) -> Expr:
+    let mut left = finish_andand(state, base)
     let mut done = false
     while !done:
         let t = peek(state)
-        if is_token_rparen(t):
-            advance(state)
-            done = true
+        if is_toror(t):
+            let dummy = advance(state)
+            let right = parse_and(state)
+            left = EOr(left, right)
         else:
-            if !first:
-                let sep = advance(state)
-                if !is_token_comma(sep):
-                    panic("expected ',' or ')'")
-            push(args, parse_expr(state))
-            first = false
-    skip_optional_semicolon(state)
-    SExpr(ECall(name, args))
+            done = true
+    left
 
-// ───────────────────────── function + program parser ─────────────────────────
+fn finish_andand(state: ParseState, base: Expr) -> Expr:
+    let mut left = finish_cmp(state, base)
+    let mut done = false
+    while !done:
+        let t = peek(state)
+        if is_tandand(t):
+            let dummy = advance(state)
+            let right = parse_eq_expr(state)
+            left = EAnd(left, right)
+        else:
+            done = true
+    left
+
+fn finish_cmp(state: ParseState, base: Expr) -> Expr:
+    let t = peek(state)
+    if is_teqeq(t):
+        let dummy = advance(state)
+        return EEq(base, parse_rel(state))
+    if is_tneq(t):
+        let dummy = advance(state)
+        return ENe(base, parse_rel(state))
+    if is_tlt(t):
+        let dummy = advance(state)
+        return ELt(base, parse_add(state))
+    if is_tle(t):
+        let dummy = advance(state)
+        return ELe(base, parse_add(state))
+    if is_tgt(t):
+        let dummy = advance(state)
+        return EGt(base, parse_add(state))
+    if is_tge(t):
+        let dummy = advance(state)
+        return EGe(base, parse_add(state))
+    finish_add(state, base)
+
+fn finish_add(state: ParseState, base: Expr) -> Expr:
+    let mut left = finish_mul(state, base)
+    let mut done = false
+    while !done:
+        let t = peek(state)
+        if is_tplus(t):
+            let dummy = advance(state)
+            let right = parse_mul(state)
+            left = EAdd(left, right)
+        else if is_tminus(t):
+            let dummy = advance(state)
+            let right = parse_mul(state)
+            left = ESub(left, right)
+        else:
+            done = true
+    left
+
+fn finish_mul(state: ParseState, base: Expr) -> Expr:
+    let mut left = base
+    let mut done = false
+    while !done:
+        let t = peek(state)
+        if is_tstar(t):
+            let dummy = advance(state)
+            let right = parse_unary(state)
+            left = EMul(left, right)
+        else if is_tslash(t):
+            let dummy = advance(state)
+            let right = parse_unary(state)
+            left = EDiv(left, right)
+        else if is_tpercent(t):
+            let dummy = advance(state)
+            let right = parse_unary(state)
+            left = EMod(left, right)
+        else:
+            done = true
+    left
+
+fn parse_assign_target(base: Expr, value: Expr) -> Stmt:
+    match base:
+        EVar(name)         => SAssign(name, value)
+        EField(obj, field) => parse_field_assign(obj, field, value)
+        _                  => panic("invalid assignment target")
+
+fn parse_field_assign(obj: Expr, field: String, value: Expr) -> Stmt:
+    match obj:
+        EVar(name) => SFieldAssign(name, field, value)
+        _          => panic("only simple field assignment supported in stage-1.3")
+
+// ───────────────────────── function + declarations ─────────────────────────
 
 fn parse_function(state: ParseState) -> Fn:
-    let tfn = advance(state)
-    if !is_token_fn(tfn):
-        panic("expected 'fn'")
+    let dummy = advance(state)
     let name = expect_ident(state)
     expect_lparen(state)
     let params = []
-    let mut first = true
-    let mut done_params = false
-    while !done_params:
-        let t = peek(state)
-        if is_token_rparen(t):
-            advance(state)
-            done_params = true
-        else:
+    let t = peek(state)
+    if !is_trparen(t):
+        let mut first = true
+        let mut done = false
+        while !done:
             if !first:
                 let sep = advance(state)
-                if !is_token_comma(sep):
+                if !is_tcomma(sep):
                     panic("expected ',' or ')'")
             let pname = expect_ident(state)
-            expect_colon(state)
-            let pty = parse_type(state)
-            push(params, Param { name: pname, ty: pty })
+            let tcolon = peek(state)
+            let pty = if is_tcolon(tcolon):
+                let dummy_c = advance(state)
+                parse_type(state)
+            else:
+                TyNamed("_")
+            push(params, Param { pname: pname, pty: pty })
             first = false
+            let nt = peek(state)
+            if is_trparen(nt):
+                done = true
+    expect_rparen(state)
     let t2 = peek(state)
-    let ret = parse_fn_return(state, t2)
+    let ret = if is_tarrow(t2):
+        let dummy2 = advance(state)
+        parse_type(state)
+    else:
+        TyUnit
     let body = parse_block(state)
     Fn { name: name, params: params, ret: ret, body: body }
 
-fn parse_fn_return(state: ParseState, t: Token) -> Type:
-    match t:
-        TArrow => parse_fn_return_type(state)
-        _      => TyUnit
+fn parse_enum_decl(state: ParseState) -> EnumDecl:
+    let dummy = advance(state)
+    let ename = expect_ident(state)
+    expect_lbrace(state)
+    let variants = []
+    let mut done = false
+    while !done:
+        let t = peek(state)
+        if is_trbrace(t):
+            let dummy2 = advance(state)
+            done = true
+        else:
+            let vname = expect_ident(state)
+            let payload = []
+            let t2 = peek(state)
+            if is_tlparen(t2):
+                let dummy3 = advance(state)
+                let mut pfirst = true
+                let mut pdone = false
+                while !pdone:
+                    if !pfirst:
+                        let sep = advance(state)
+                        if !is_tcomma(sep):
+                            panic("expected ',' in variant payload")
+                    push(payload, parse_type(state))
+                    pfirst = false
+                    let nt = peek(state)
+                    if is_trparen(nt):
+                        let dummy4 = advance(state)
+                        pdone = true
+            push(variants, VariantDecl { vname: vname, payload: payload })
+            let nt2 = peek(state)
+            if is_tcomma(nt2):
+                let dummy5 = advance(state)
+    EnumDecl { ename: ename, variants: variants }
 
-fn parse_fn_return_type(state: ParseState) -> Type:
-    advance(state)
-    parse_type(state)
+fn parse_struct_decl(state: ParseState) -> StructDecl:
+    let dummy = advance(state)
+    let sname = expect_ident(state)
+    expect_lbrace(state)
+    let fields = []
+    let mut done = false
+    while !done:
+        let t = peek(state)
+        if is_trbrace(t):
+            let dummy2 = advance(state)
+            done = true
+        else:
+            let dname = expect_ident(state)
+            expect_colon(state)
+            let dtype = parse_type(state)
+            push(fields, FieldDecl { dname: dname, dtype: dtype })
+            let nt = peek(state)
+            if is_tcomma(nt):
+                let dummy3 = advance(state)
+    StructDecl { sname: sname, fields: fields }
 
-fn parse_program(tokens: [Token]) -> [Fn]:
+fn parse_program(tokens: [Token]) -> Program:
     let state = ParseState { tokens: tokens, pos: 0 }
+    let enums = []
+    let structs = []
     let fns = []
     let mut done = false
     while !done:
         let t = peek(state)
-        if is_token_eof(t):
+        if is_eof(t):
             done = true
-        else:
+        else if is_tenum(t):
+            push(enums, parse_enum_decl(state))
+        else if is_tstruct(t):
+            push(structs, parse_struct_decl(state))
+        else if is_tfn(t):
             push(fns, parse_function(state))
-    fns
+        else:
+            panic("expected fn, enum, or struct at top level")
+    Program { enums: enums, structs: structs, fns: fns }
 
-// ───────────────────────── codegen ─────────────────────────
+// ───────────────────────── codegen helpers ─────────────────────────
 
-fn type_to_c(t: Type) -> String:
-    match t:
-        TyInt  => "int64_t"
-        TyBool => "bool"
-        TyUnit => "void"
-        TyStr  => "const char*"
+fn c_name_of(name: String) -> String:
+    if name == "main":
+        return "mom_main"
+    if is_c_reserved(name):
+        return "mom_" + name
+    name
 
-fn lookup_local(scope: [LocalEntry], name: String) -> Type:
-    let mut i = 0
-    while i < len(scope):
-        if scope[i].name == name:
-            return scope[i].ty
-        i = i + 1
-    panic("unknown variable: " + name)
-
-fn has_local(scope: [LocalEntry], name: String) -> Bool:
-    let mut i = 0
-    while i < len(scope):
-        if scope[i].name == name:
-            return true
-        i = i + 1
+fn is_c_reserved(name: String) -> Bool:
+    if name == "auto" || name == "break" || name == "case" || name == "char":
+        return true
+    if name == "const" || name == "continue" || name == "default" || name == "do":
+        return true
+    if name == "double" || name == "else" || name == "enum" || name == "extern":
+        return true
+    if name == "float" || name == "for" || name == "goto" || name == "if":
+        return true
+    if name == "inline" || name == "int" || name == "long" || name == "register":
+        return true
+    if name == "restrict" || name == "return" || name == "short" || name == "signed":
+        return true
+    if name == "sizeof" || name == "static" || name == "struct" || name == "switch":
+        return true
+    if name == "typedef" || name == "union" || name == "unsigned" || name == "void":
+        return true
+    if name == "volatile" || name == "while":
+        return true
     false
 
-fn lookup_fn(fns: [Fn], name: String) -> Fn:
+fn indent_of(depth: Int) -> String:
+    let mut s = ""
     let mut i = 0
-    while i < len(fns):
-        if fns[i].name == name:
-            return fns[i]
+    while i < depth:
+        s = s + "    "
         i = i + 1
-    panic("unknown function: " + name)
+    s
 
-fn emit_expr(e: Expr, scope: [LocalEntry], fns: [Fn]) -> EmitResult:
-    match e:
-        EInt(n)  => EmitResult { src: "INT64_C(" + to_string(n) + ")", ty: TyInt }
-        EBool(b) => emit_expr_bool(b)
-        EStr(s)  => EmitResult { src: "\"" + c_escape(s) + "\"", ty: TyStr }
-        EVar(name) => EmitResult { src: name, ty: lookup_local(scope, name) }
-        ECall(name, args) => emit_call(name, args, scope, fns)
-        EAdd(l, r)  => emit_add(l, r, scope, fns)
-        ESub(l, r)  => emit_arith(l, r, "-", scope, fns)
-        EMul(l, r)  => emit_arith(l, r, "*", scope, fns)
-        EDiv(l, r)  => emit_arith(l, r, "/", scope, fns)
-        EMod(l, r)  => emit_arith(l, r, "%", scope, fns)
-        EEq(l, r)   => emit_cmp(l, r, "==", scope, fns)
-        ENe(l, r)   => emit_cmp(l, r, "!=", scope, fns)
-        ELt(l, r)   => emit_cmp(l, r, "<",  scope, fns)
-        ELe(l, r)   => emit_cmp(l, r, "<=", scope, fns)
-        EGt(l, r)   => emit_cmp(l, r, ">",  scope, fns)
-        EGe(l, r)   => emit_cmp(l, r, ">=", scope, fns)
-        EAnd(l, r)  => emit_logical(l, r, "&&", scope, fns)
-        EOr(l, r)   => emit_logical(l, r, "||", scope, fns)
-        ENot(inner) => emit_not(inner, scope, fns)
-        ENeg(inner) => emit_neg(inner, scope, fns)
-
-fn is_ty_str(t: Type) -> Bool:
-    match t:
-        TyStr => true
-        _     => false
-
-fn emit_add(l: Expr, r: Expr, scope: [LocalEntry], fns: [Fn]) -> EmitResult:
-    let lr = emit_expr(l, scope, fns)
-    let rr = emit_expr(r, scope, fns)
-    if is_ty_str(lr.ty) || is_ty_str(rr.ty):
-        EmitResult { src: "mom_strcat_alloc(" + lr.src + ", " + rr.src + ")", ty: TyStr }
-    else:
-        EmitResult { src: "(" + lr.src + " + " + rr.src + ")", ty: TyInt }
-
-fn c_escape(s: String) -> String:
+fn c_escape_str(s: String) -> String:
     let mut out = ""
     let mut i = 0
     let n = len(s)
@@ -956,154 +1490,522 @@ fn c_escape(s: String) -> String:
         i = i + 1
     out
 
-fn emit_expr_bool(b: Bool) -> EmitResult:
-    if b:
-        EmitResult { src: "true", ty: TyBool }
-    else:
-        EmitResult { src: "false", ty: TyBool }
+fn ret_type_c(ty: Type) -> String:
+    match ty:
+        TyUnit => "void"
+        _      => "MomVal*"
 
-fn emit_call(name: String, args: [Expr], scope: [LocalEntry], fns: [Fn]) -> EmitResult:
-    // Builtins: str(x), len(s) — emit specialised C without an fns lookup.
-    if name == "str":
-        if len(args) != 1:
-            panic("str() takes one argument")
-        let r = emit_expr(args[0], scope, fns)
-        match r.ty:
-            TyInt  => EmitResult { src: "mom_str_from_int("  + r.src + ")", ty: TyStr }
-            TyBool => EmitResult { src: "mom_str_from_bool(" + r.src + ")", ty: TyStr }
-            TyStr  => r
-            _      => panic("str() expects Int, Bool, or String")
-    else if name == "len":
-        if len(args) != 1:
-            panic("len() takes one argument")
-        let r = emit_expr(args[0], scope, fns)
-        if !is_ty_str(r.ty):
-            panic("len() expects a String in stage-1.2")
-        EmitResult { src: "mom_str_len_raw(" + r.src + ")", ty: TyInt }
-    else:
-        let f = lookup_fn(fns, name)
-        let mut src = c_name_of(name) + "("
-        let mut i = 0
-        while i < len(args):
-            if i > 0:
-                src = src + ", "
-            let r = emit_expr(args[i], scope, fns)
-            src = src + r.src
-            i = i + 1
-        src = src + ")"
-        EmitResult { src: src, ty: f.ret }
+// ───────────────────────── enum/struct environment lookup ─────────────────────
 
-fn emit_not(inner: Expr, scope: [LocalEntry], fns: [Fn]) -> EmitResult:
-    let r = emit_expr(inner, scope, fns)
-    EmitResult { src: "(!" + r.src + ")", ty: TyBool }
-
-fn emit_neg(inner: Expr, scope: [LocalEntry], fns: [Fn]) -> EmitResult:
-    let r = emit_expr(inner, scope, fns)
-    EmitResult { src: "(-" + r.src + ")", ty: r.ty }
-
-fn emit_arith(l: Expr, r: Expr, op: String, scope: [LocalEntry], fns: [Fn]) -> EmitResult:
-    let lr = emit_expr(l, scope, fns)
-    let rr = emit_expr(r, scope, fns)
-    EmitResult { src: "(" + lr.src + " " + op + " " + rr.src + ")", ty: TyInt }
-
-fn emit_cmp(l: Expr, r: Expr, op: String, scope: [LocalEntry], fns: [Fn]) -> EmitResult:
-    let lr = emit_expr(l, scope, fns)
-    let rr = emit_expr(r, scope, fns)
-    EmitResult { src: "(" + lr.src + " " + op + " " + rr.src + ")", ty: TyBool }
-
-fn emit_logical(l: Expr, r: Expr, op: String, scope: [LocalEntry], fns: [Fn]) -> EmitResult:
-    let lr = emit_expr(l, scope, fns)
-    let rr = emit_expr(r, scope, fns)
-    EmitResult { src: "(" + lr.src + " " + op + " " + rr.src + ")", ty: TyBool }
-
-fn indent_of(depth: Int) -> String:
-    let mut s = ""
+fn find_variant_enum_idx(enums: [EnumDecl], vname: String) -> Int:
     let mut i = 0
-    while i < depth:
-        s = s + "    "
+    while i < len(enums):
+        let edecl = enums[i]
+        let mut j = 0
+        while j < len(edecl.variants):
+            if edecl.variants[j].vname == vname:
+                return i
+            j = j + 1
         i = i + 1
-    s
+    -1
 
-fn emit_stmt(stmt: Stmt, scope: [LocalEntry], fns: [Fn], depth: Int, ret_ty: Type) -> String:
+fn find_variant_tag(edecl: EnumDecl, vname: String) -> Int:
+    let mut j = 0
+    while j < len(edecl.variants):
+        if edecl.variants[j].vname == vname:
+            return j
+        j = j + 1
+    -1
+
+fn find_struct_idx(structs: [StructDecl], sname: String) -> Int:
+    let mut i = 0
+    while i < len(structs):
+        if structs[i].sname == sname:
+            return i
+        i = i + 1
+    -1
+
+fn find_field_idx(sdecl: StructDecl, fname: String) -> Int:
+    let mut i = 0
+    while i < len(sdecl.fields):
+        if sdecl.fields[i].dname == fname:
+            return i
+        i = i + 1
+    -1
+
+fn get_enum_tag_name(edecl: EnumDecl, vname: String) -> String:
+    "MOM_" + edecl.ename + "_" + vname
+
+fn get_struct_id_name(sdecl: StructDecl) -> String:
+    "MOM_STRUCT_" + sdecl.sname
+
+fn get_field_idx_name(sdecl: StructDecl, fname: String) -> String:
+    "MOM_FIELD_" + sdecl.sname + "_" + fname
+
+// ───────────────────────── variant resolution ─────────────────────────
+
+fn resolve_variant_expr(vname: String, args: [Expr], enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry]) -> String:
+    // Try built-in Option/Result first
+    if vname == "Some":
+        if len(args) == 1:
+            let r = emit_expr(args[0], enums, structs, scope)
+            return "mom_variant(MOM_OPT_Some, 1, " + r + ")"
+        panic("Some expects 1 argument")
+    if vname == "None":
+        return "mom_variant(MOM_OPT_None, 0)"
+    if vname == "Ok":
+        if len(args) == 1:
+            let r = emit_expr(args[0], enums, structs, scope)
+            return "mom_variant(MOM_RES_Ok, 1, " + r + ")"
+        panic("Ok expects 1 argument")
+    if vname == "Err":
+        if len(args) == 1:
+            let r = emit_expr(args[0], enums, structs, scope)
+            return "mom_variant(MOM_RES_Err, 1, " + r + ")"
+        panic("Err expects 1 argument")
+    // User enum
+    let ei = find_variant_enum_idx(enums, vname)
+    if ei < 0:
+        panic("unknown variant: " + vname)
+    let edecl = enums[ei]
+    let tag = find_variant_tag(edecl, vname)
+    let tag_name = get_enum_tag_name(edecl, vname)
+    let n = len(args)
+    if n == 0:
+        return "mom_variant(" + tag_name + ", 0)"
+    let mut src = "mom_variant(" + tag_name + ", " + to_string(n)
+    let mut i = 0
+    while i < n:
+        src = src + ", " + emit_expr(args[i], enums, structs, scope)
+        i = i + 1
+    src + ")"
+
+// ───────────────────────── expression codegen ─────────────────────────
+
+fn emit_expr(e: Expr, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry]) -> String:
+    match e:
+        EInt(n)  => "mom_int(INT64_C(" + to_string(n) + "))"
+        EBool(b) => emit_expr_bool(b)
+        EStr(s)  => "mom_str(\"" + c_escape_str(s) + "\")"
+        EVar(name) => emit_expr_var_resolved(name, enums)
+        ECall(name, args) => emit_call(name, args, enums, structs, scope)
+        EList(items) => emit_list(items, enums, structs, scope)
+        EField(obj, field) => emit_field(obj, field, enums, structs, scope)
+        EIndex(obj, idx) => emit_index(obj, idx, enums, structs, scope)
+        EStructLit(name, fields) => emit_struct_lit(name, fields, enums, structs, scope)
+        EVariant0(vname) => resolve_variant_expr(vname, [], enums, structs, scope)
+        EVariant1(vname, arg) => emit_variant1(vname, arg, enums, structs, scope)
+        EVariantN(vname, args) => resolve_variant_expr(vname, args, enums, structs, scope)
+        EAdd(l, r)  => emit_binop(l, r, "mom_add", enums, structs, scope)
+        ESub(l, r)  => emit_binop(l, r, "mom_sub", enums, structs, scope)
+        EMul(l, r)  => emit_binop(l, r, "mom_mul", enums, structs, scope)
+        EDiv(l, r)  => emit_binop(l, r, "mom_div", enums, structs, scope)
+        EMod(l, r)  => emit_binop(l, r, "mom_mod", enums, structs, scope)
+        EEq(l, r)   => emit_binop(l, r, "mom_eq", enums, structs, scope)
+        ENe(l, r)   => emit_binop(l, r, "mom_ne", enums, structs, scope)
+        ELt(l, r)   => emit_binop(l, r, "mom_lt", enums, structs, scope)
+        ELe(l, r)   => emit_binop(l, r, "mom_le", enums, structs, scope)
+        EGt(l, r)   => emit_binop(l, r, "mom_gt", enums, structs, scope)
+        EGe(l, r)   => emit_binop(l, r, "mom_ge", enums, structs, scope)
+        EAnd(l, r)  => emit_binop(l, r, "mom_and", enums, structs, scope)
+        EOr(l, r)   => emit_binop(l, r, "mom_or", enums, structs, scope)
+        ENot(inner) => "mom_not(" + emit_expr(inner, enums, structs, scope) + ")"
+        ENeg(inner) => "mom_neg(" + emit_expr(inner, enums, structs, scope) + ")"
+
+fn emit_expr_bool(b: Bool) -> String:
+    if b:
+        "mom_bool(1)"
+    else:
+        "mom_bool(0)"
+
+fn emit_expr_var(name: String) -> String:
+    if name == "__unit__":
+        return "mom_unit()"
+    name
+
+fn emit_expr_var_resolved(name: String, enums: [EnumDecl]) -> String:
+    if name == "__unit__":
+        return "mom_unit()"
+    // Check if this is a zero-payload enum variant (uppercase names)
+    if char_is_upper(name):
+        // Built-in Option/Result variants
+        if name == "None":
+            return "mom_variant(MOM_OPT_None, 0)"
+        if name == "Some" || name == "Ok" || name == "Err":
+            return name + ""  // Should have been called as a function; return as-is
+        // User-defined variant
+        let ei = find_variant_enum_idx(enums, name)
+        if ei >= 0:
+            let edecl = enums[ei]
+            let tag_name = get_enum_tag_name(edecl, name)
+            return "mom_variant(" + tag_name + ", 0)"
+    name
+
+fn emit_binop(l: Expr, r: Expr, fn_name: String, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry]) -> String:
+    fn_name + "(" + emit_expr(l, enums, structs, scope) + ", " + emit_expr(r, enums, structs, scope) + ")"
+
+fn emit_variant1(vname: String, arg: Expr, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry]) -> String:
+    let args = []
+    push(args, arg)
+    resolve_variant_expr(vname, args, enums, structs, scope)
+
+fn emit_list(items: [Expr], enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry]) -> String:
+    if len(items) == 0:
+        return "mom_list_new()"
+    let mut src = "mom_list_from_n(" + to_string(len(items))
+    let mut i = 0
+    while i < len(items):
+        src = src + ", " + emit_expr(items[i], enums, structs, scope)
+        i = i + 1
+    src + ")"
+
+fn emit_field(obj: Expr, field: String, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry]) -> String:
+    let obj_src = emit_expr(obj, enums, structs, scope)
+    // Can't look up field index without type info, so we use field by name via a generic struct access
+    // We generate a helper call that accesses by field index
+    // For now, emit direct field access — struct knows its fields
+    "mom_struct_get_named(" + obj_src + ", \"" + field + "\")"
+
+fn emit_index(obj: Expr, idx: Expr, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry]) -> String:
+    let obj_src = emit_expr(obj, enums, structs, scope)
+    let idx_src = emit_expr(idx, enums, structs, scope)
+    "mom_val_index(" + obj_src + ", " + idx_src + ")"
+
+fn emit_struct_lit(name: String, fields: [FieldInit], enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry]) -> String:
+    let si = find_struct_idx(structs, name)
+    let n = len(fields)
+    if si < 0:
+        panic("unknown struct: " + name)
+    let sdecl = structs[si]
+    let struct_id = get_struct_id_name(sdecl)
+    let mut src = "mom_struct(" + struct_id + ", " + to_string(n)
+    let mut i = 0
+    while i < n:
+        let fi = fields[i]
+        src = src + ", \"" + fi.fname + "\", " + emit_expr(fi.fval, enums, structs, scope)
+        i = i + 1
+    src + ")"
+
+fn emit_call(name: String, args: [Expr], enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry]) -> String:
+    // Built-in functions
+    if name == "print" || name == "println":
+        if len(args) == 1:
+            return "mom_println(" + emit_expr(args[0], enums, structs, scope) + ")"
+        panic("print/println expects 1 argument")
+    if name == "eprint":
+        if len(args) == 1:
+            return "mom_eprint_val(" + emit_expr(args[0], enums, structs, scope) + ")"
+        panic("eprint expects 1 argument")
+    if name == "str" || name == "to_string":
+        if len(args) == 1:
+            return "mom_to_str(" + emit_expr(args[0], enums, structs, scope) + ")"
+        panic("str/to_string expects 1 argument")
+    if name == "len":
+        if len(args) == 1:
+            return "mom_int(mom_val_len(" + emit_expr(args[0], enums, structs, scope) + "))"
+        panic("len expects 1 argument")
+    if name == "push":
+        if len(args) == 2:
+            return "(" + emit_expr(args[0], enums, structs, scope) + ", mom_list_push(" + emit_expr(args[0], enums, structs, scope) + ", " + emit_expr(args[1], enums, structs, scope) + "), mom_unit())"
+        panic("push expects 2 arguments")
+    if name == "pop":
+        if len(args) == 1:
+            return "mom_pop_opt(" + emit_expr(args[0], enums, structs, scope) + ")"
+        panic("pop expects 1 argument")
+    if name == "panic":
+        if len(args) == 1:
+            return "(mom_panic(mom_str_val(" + emit_expr(args[0], enums, structs, scope) + ")), mom_unit())"
+        panic("panic expects 1 argument")
+    if name == "getenv":
+        if len(args) == 1:
+            return "mom_getenv_opt(" + emit_expr(args[0], enums, structs, scope) + ")"
+        panic("getenv expects 1 argument")
+    if name == "read_file":
+        if len(args) == 1:
+            return "mom_read_file_result(" + emit_expr(args[0], enums, structs, scope) + ")"
+        panic("read_file expects 1 argument")
+    if name == "write_file":
+        if len(args) == 2:
+            return "mom_write_file_result(" + emit_expr(args[0], enums, structs, scope) + ", " + emit_expr(args[1], enums, structs, scope) + ")"
+        panic("write_file expects 2 arguments")
+    if name == "args":
+        return "mom_list_new()"
+    // Check if name is a known enum variant (constructor as function call)
+    // Built-in variants first
+    if name == "Some" || name == "None" || name == "Ok" || name == "Err":
+        return resolve_variant_expr(name, args, enums, structs, scope)
+    let ei = find_variant_enum_idx(enums, name)
+    if ei >= 0:
+        return resolve_variant_expr(name, args, enums, structs, scope)
+    // User-defined function call
+    let mut src = c_name_of(name) + "("
+    let mut i = 0
+    while i < len(args):
+        if i > 0:
+            src = src + ", "
+        src = src + emit_expr(args[i], enums, structs, scope)
+        i = i + 1
+    src + ")"
+
+// ───────────────────────── push helper ─────────────────────────
+
+// mom_list_push is void but we sometimes need an expression form.
+// The emit_call for "push" uses a comma-expression trick above.
+// For statement form, we emit directly.
+
+fn emit_push_stmt(pad: String, list_expr: Expr, item_expr: Expr, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry]) -> String:
+    let ls = emit_expr(list_expr, enums, structs, scope)
+    let is_val = emit_expr(item_expr, enums, structs, scope)
+    pad + "mom_list_push(" + ls + ", " + is_val + ");\n"
+
+// ───────────────────────── match codegen ─────────────────────────
+
+fn emit_match_cond(pat: Pattern, scrutinee_var: String, enums: [EnumDecl]) -> String:
+    match pat:
+        PWild           => "1"
+        PBind(_)        => "1"
+        PBool(b)        => emit_match_cond_bool(b, scrutinee_var)
+        PInt(n)         => "mom_int_val(" + scrutinee_var + ") == INT64_C(" + to_string(n) + ")"
+        PStr(s)         => "strcmp(mom_str_val(" + scrutinee_var + "), \"" + c_escape_str(s) + "\") == 0"
+        PVariant0(vn)   => emit_match_cond_variant(vn, scrutinee_var, enums)
+        PVariant1(vn, _) => emit_match_cond_variant(vn, scrutinee_var, enums)
+        PVariant2(vn, _, _) => emit_match_cond_variant(vn, scrutinee_var, enums)
+        PVariantN(vn, _) => emit_match_cond_variant(vn, scrutinee_var, enums)
+
+fn emit_match_cond_bool(b: Bool, scrutinee_var: String) -> String:
+    if b:
+        "mom_bool_val(" + scrutinee_var + ")"
+    else:
+        "!mom_bool_val(" + scrutinee_var + ")"
+
+fn emit_match_cond_variant(vname: String, scrutinee_var: String, enums: [EnumDecl]) -> String:
+    if vname == "Some":
+        return "mom_variant_tag(" + scrutinee_var + ") == MOM_OPT_Some"
+    if vname == "None":
+        return "mom_variant_tag(" + scrutinee_var + ") == MOM_OPT_None"
+    if vname == "Ok":
+        return "mom_variant_tag(" + scrutinee_var + ") == MOM_RES_Ok"
+    if vname == "Err":
+        return "mom_variant_tag(" + scrutinee_var + ") == MOM_RES_Err"
+    let ei = find_variant_enum_idx(enums, vname)
+    if ei < 0:
+        panic("unknown variant in pattern: " + vname)
+    let edecl = enums[ei]
+    let tag_name = get_enum_tag_name(edecl, vname)
+    "mom_variant_tag(" + scrutinee_var + ") == " + tag_name
+
+fn emit_match_bindings(pat: Pattern, scrutinee_var: String, pad: String) -> String:
+    match pat:
+        PBind(name)          => pad + "MomVal* " + name + " = " + scrutinee_var + ";\n"
+        PVariant1(_, b1)     => emit_variant_binding_1(pad, scrutinee_var, b1)
+        PVariant2(_, b1, b2) => emit_variant_binding_2(pad, scrutinee_var, b1, b2)
+        PVariantN(_, bs)     => emit_variant_binding_n(pad, scrutinee_var, bs)
+        _ => ""
+
+fn emit_variant_binding_1(pad: String, sv: String, b1: String) -> String:
+    emit_one_payload_binding(pad, sv, b1, 0)
+
+fn emit_variant_binding_2(pad: String, sv: String, b1: String, b2: String) -> String:
+    emit_one_payload_binding(pad, sv, b1, 0) + emit_one_payload_binding(pad, sv, b2, 1)
+
+fn emit_one_payload_binding(pad: String, sv: String, name: String, idx: Int) -> String:
+    if name == "_" || (len(name) > 0 && name[0] == "_"):
+        // Wildcard or discard binding — emit a comment or nothing
+        pad + "// discard payload " + to_string(idx) + "\n"
+    else:
+        pad + "MomVal* " + name + " = mom_variant_payload(" + sv + ", " + to_string(idx) + ");\n"
+
+fn emit_variant_binding_n(pad: String, sv: String, bs: [String]) -> String:
+    let mut out = ""
+    let mut i = 0
+    while i < len(bs):
+        out = out + emit_one_payload_binding(pad, sv, bs[i], i)
+        i = i + 1
+    out
+
+fn emit_match_arms_stmts(ms_var: String, arms: [MatchArm], result_var: String, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry], depth: Int) -> String:
+    let pad = indent_of(depth)
+    let mut out = ""
+    let mut i = 0
+    while i < len(arms):
+        let arm = arms[i]
+        let cond = emit_match_cond(arm.pattern, ms_var, enums)
+        let bindings = emit_match_bindings(arm.pattern, ms_var, indent_of(depth + 1))
+        let body_src = emit_block(arm.body, enums, structs, scope, depth + 1)
+        if i == 0:
+            out = out + pad + "if (" + cond + ") {\n" + bindings + body_src + pad + "}"
+        else:
+            out = out + " else if (" + cond + ") {\n" + bindings + body_src + pad + "}"
+        i = i + 1
+    out + "\n"
+
+fn emit_match_arms_with_result(ms_var: String, arms: [MatchArm], result_var: String, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry], depth: Int) -> String:
+    let pad = indent_of(depth)
+    let mut out = ""
+    let mut i = 0
+    while i < len(arms):
+        let arm = arms[i]
+        let cond = emit_match_cond(arm.pattern, ms_var, enums)
+        let bindings = emit_match_bindings(arm.pattern, ms_var, indent_of(depth + 1))
+        let body = arm.body
+        // last stmt of body becomes the result assignment
+        let body_src = emit_block_with_result(body, result_var, enums, structs, scope, depth + 1)
+        if i == 0:
+            out = out + pad + "if (" + cond + ") {\n" + bindings + body_src + pad + "}"
+        else:
+            out = out + " else if (" + cond + ") {\n" + bindings + body_src + pad + "}"
+        i = i + 1
+    out + "\n"
+
+fn is_sreturn(s: Stmt) -> Bool:
+    match s:
+        SReturn(_) => true
+        _          => false
+
+fn is_sexpr(s: Stmt) -> Bool:
+    match s:
+        SExpr(_) => true
+        _        => false
+
+fn get_sreturn_expr(s: Stmt) -> Expr:
+    match s:
+        SReturn(e) => e
+        _          => EVar("__unit__")
+
+fn get_sexpr_expr(s: Stmt) -> Expr:
+    match s:
+        SExpr(e) => e
+        _        => EVar("__unit__")
+
+fn emit_block_with_result(stmts: [Stmt], result_var: String, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry], depth: Int) -> String:
+    let n = len(stmts)
+    if n == 0:
+        return indent_of(depth) + result_var + " = mom_unit();\n"
+    let mut out = ""
+    let mut i = 0
+    while i < n - 1:
+        out = out + emit_stmt(stmts[i], enums, structs, scope, depth)
+        i = i + 1
+    let last = stmts[n - 1]
+    if is_sreturn(last):
+        let e = get_sreturn_expr(last)
+        return out + indent_of(depth) + result_var + " = " + emit_expr(e, enums, structs, scope) + ";\n"
+    if is_sexpr(last):
+        let e = get_sexpr_expr(last)
+        return out + indent_of(depth) + result_var + " = " + emit_expr(e, enums, structs, scope) + ";\n"
+    out + emit_stmt(last, enums, structs, scope, depth) + indent_of(depth) + result_var + " = mom_unit();\n"
+
+// ───────────────────────── statement codegen ─────────────────────────
+
+fn emit_stmt(stmt: Stmt, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry], depth: Int) -> String:
     let pad = indent_of(depth)
     match stmt:
-        SLet(name, _mutable, value) => emit_stmt_let(pad, name, value, scope, fns)
-        SAssign(name, value)        => emit_stmt_assign(pad, name, value, scope, fns)
-        SPrint(value)               => emit_stmt_print(pad, value, scope, fns)
-        SIf(cond, then_stmts, else_stmts) => emit_stmt_if(pad, cond, then_stmts, else_stmts, scope, fns, depth, ret_ty)
-        SWhile(cond, body)          => emit_stmt_while(pad, cond, body, scope, fns, depth, ret_ty)
-        SFor(name, lo, hi, body)    => emit_stmt_for(pad, name, lo, hi, body, scope, fns, depth, ret_ty)
-        SReturn(value)              => emit_stmt_return(pad, value, scope, fns)
-        SReturnUnit                 => pad + "return;\n"
-        SExpr(value)                => emit_stmt_expr(pad, value, scope, fns)
+        SLet(name, _mut, value)      => emit_stmt_let(pad, name, value, enums, structs, scope, depth)
+        SLetMatch(name, scrut, arms) => emit_stmt_let_match(pad, name, scrut, arms, enums, structs, scope, depth)
+        SAssign(name, value)         => pad + name + " = " + emit_expr(value, enums, structs, scope) + ";\n"
+        SFieldAssign(obj, field, value) => emit_stmt_field_assign(pad, obj, field, value, enums, structs, scope)
+        SIndexAssign(obj, idx, value)   => emit_stmt_index_assign(pad, obj, idx, value, enums, structs, scope)
+        SPrint(value)                => pad + "mom_println(" + emit_expr(value, enums, structs, scope) + ");\n"
+        SIf(cond, then_s, else_s)    => emit_stmt_if(pad, cond, then_s, else_s, enums, structs, scope, depth)
+        SWhile(cond, body)           => emit_stmt_while(pad, cond, body, enums, structs, scope, depth)
+        SFor(name, lo, hi, body)     => emit_stmt_for(pad, name, lo, hi, body, enums, structs, scope, depth)
+        SReturn(value)               => pad + "return " + emit_expr(value, enums, structs, scope) + ";\n"
+        SReturnUnit                  => pad + "return;\n"
+        SExpr(value)                 => emit_stmt_expr(pad, value, enums, structs, scope)
+        SMatch(scrut, arms)          => emit_stmt_match(pad, scrut, arms, enums, structs, scope, depth)
+        SBlock(inner)                => "{\n" + emit_stmt(inner, enums, structs, scope, depth + 1) + pad + "}\n"
 
-fn emit_stmt_for(pad: String, name: String, lo: Expr, hi: Expr, body: [Stmt], scope: [LocalEntry], fns: [Fn], depth: Int, ret_ty: Type) -> String:
-    // Lower `for name in lo..hi { body }` to a C for-loop over int64_t,
-    // with the iterator visible in the body's scope.
-    let lr = emit_expr(lo, scope, fns)
-    let hr = emit_expr(hi, scope, fns)
-    push(scope, LocalEntry { name: name, ty: TyInt })
-    let mut out = pad + "for (int64_t " + name + " = " + lr.src + "; " + name + " < " + hr.src + "; " + name + "++) {\n"
-    out = out + emit_block(body, scope, fns, depth + 1, ret_ty)
-    out = out + pad + "}\n"
+fn emit_stmt_let(pad: String, name: String, value: Expr, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry], depth: Int) -> String:
+    let val_src = emit_expr(value, enums, structs, scope)
+    push(scope, LocalEntry { lname: name, lty: TyNamed("_") })
+    pad + "MomVal* " + name + " = " + val_src + ";\n"
+
+fn emit_stmt_let_match(pad: String, name: String, scrut: Expr, arms: [MatchArm], enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry], depth: Int) -> String:
+    let ms_var = "_ms_" + name
+    let scrut_src = emit_expr(scrut, enums, structs, scope)
+    push(scope, LocalEntry { lname: name, lty: TyNamed("_") })
+    let mut out = pad + "MomVal* " + name + ";\n"
+    out = out + pad + "MomVal* " + ms_var + " = " + scrut_src + ";\n"
+    out = out + emit_match_arms_with_result(ms_var, arms, name, enums, structs, scope, depth)
     out
 
-fn emit_stmt_let(pad: String, name: String, value: Expr, scope: [LocalEntry], fns: [Fn]) -> String:
-    let r = emit_expr(value, scope, fns)
-    push(scope, LocalEntry { name: name, ty: r.ty })
-    pad + type_to_c(r.ty) + " " + name + " = " + r.src + ";\n"
+fn emit_stmt_field_assign(pad: String, obj: String, field: String, value: Expr, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry]) -> String:
+    let val_src = emit_expr(value, enums, structs, scope)
+    pad + "mom_struct_set_named(" + obj + ", \"" + field + "\", " + val_src + ");\n"
 
-fn emit_stmt_assign(pad: String, name: String, value: Expr, scope: [LocalEntry], fns: [Fn]) -> String:
-    let r = emit_expr(value, scope, fns)
-    pad + name + " = " + r.src + ";\n"
+fn emit_stmt_index_assign(pad: String, obj: String, idx: Expr, value: Expr, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry]) -> String:
+    let idx_src = emit_expr(idx, enums, structs, scope)
+    let val_src = emit_expr(value, enums, structs, scope)
+    pad + "mom_list_set(" + obj + ", (int)mom_int_val(" + idx_src + "), " + val_src + ");\n"
 
-fn emit_stmt_print(pad: String, value: Expr, scope: [LocalEntry], fns: [Fn]) -> String:
-    let r = emit_expr(value, scope, fns)
-    let helper = print_helper(r.ty)
-    pad + helper + "(" + r.src + ");\n"
-
-fn print_helper(ty: Type) -> String:
-    match ty:
-        TyInt  => "mom_print_int"
-        TyBool => "mom_print_bool"
-        TyUnit => "mom_print_unit"
-        TyStr  => "mom_print_str"
-
-fn emit_stmt_if(pad: String, cond: Expr, then_stmts: [Stmt], else_stmts: [Stmt], scope: [LocalEntry], fns: [Fn], depth: Int, ret_ty: Type) -> String:
-    let cr = emit_expr(cond, scope, fns)
-    let mut out = pad + "if (" + cr.src + ") {\n"
-    out = out + emit_block(then_stmts, scope, fns, depth + 1, ret_ty)
-    if len(else_stmts) > 0:
+fn emit_stmt_if(pad: String, cond: Expr, then_s: [Stmt], else_s: [Stmt], enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry], depth: Int) -> String:
+    let cond_src = emit_expr(cond, enums, structs, scope)
+    let mut out = pad + "if (mom_bool_val(" + cond_src + ")) {\n"
+    out = out + emit_block(then_s, enums, structs, scope, depth + 1)
+    if len(else_s) > 0:
         out = out + pad + "} else {\n"
-        out = out + emit_block(else_stmts, scope, fns, depth + 1, ret_ty)
-    out = out + pad + "}\n"
-    out
+        out = out + emit_block(else_s, enums, structs, scope, depth + 1)
+    out + pad + "}\n"
 
-fn emit_stmt_while(pad: String, cond: Expr, body: [Stmt], scope: [LocalEntry], fns: [Fn], depth: Int, ret_ty: Type) -> String:
-    let cr = emit_expr(cond, scope, fns)
-    let mut out = pad + "while (" + cr.src + ") {\n"
-    out = out + emit_block(body, scope, fns, depth + 1, ret_ty)
-    out = out + pad + "}\n"
-    out
+fn emit_stmt_while(pad: String, cond: Expr, body: [Stmt], enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry], depth: Int) -> String:
+    let cond_src = emit_expr(cond, enums, structs, scope)
+    let mut out = pad + "while (mom_bool_val(" + cond_src + ")) {\n"
+    out = out + emit_block(body, enums, structs, scope, depth + 1)
+    out + pad + "}\n"
 
-fn emit_stmt_return(pad: String, value: Expr, scope: [LocalEntry], fns: [Fn]) -> String:
-    let r = emit_expr(value, scope, fns)
-    pad + "return " + r.src + ";\n"
+fn emit_stmt_for(pad: String, name: String, lo: Expr, hi: Expr, body: [Stmt], enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry], depth: Int) -> String:
+    let lo_src = emit_expr(lo, enums, structs, scope)
+    let hi_src = emit_expr(hi, enums, structs, scope)
+    push(scope, LocalEntry { lname: name, lty: TyInt })
+    let mut out = pad + "for (MomVal* " + name + " = " + lo_src + "; mom_bool_val(mom_lt(" + name + ", " + hi_src + ")); " + name + " = mom_add(" + name + ", mom_int(INT64_C(1)))) {\n"
+    out = out + emit_block(body, enums, structs, scope, depth + 1)
+    out + pad + "}\n"
 
-fn emit_stmt_expr(pad: String, value: Expr, scope: [LocalEntry], fns: [Fn]) -> String:
-    let r = emit_expr(value, scope, fns)
-    pad + r.src + ";\n"
+fn is_ecall_push(e: Expr) -> Bool:
+    match e:
+        ECall(name, _) => name == "push"
+        _              => false
 
-fn emit_block(stmts: [Stmt], scope: [LocalEntry], fns: [Fn], depth: Int, ret_ty: Type) -> String:
+fn get_ecall_args(e: Expr) -> [Expr]:
+    match e:
+        ECall(_, args) => args
+        _              => []
+
+fn emit_stmt_expr(pad: String, value: Expr, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry]) -> String:
+    if is_ecall_push(value):
+        let args = get_ecall_args(value)
+        return emit_stmt_expr_push(pad, args, enums, structs, scope)
+    pad + emit_expr(value, enums, structs, scope) + ";\n"
+
+fn emit_stmt_expr_push(pad: String, args: [Expr], enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry]) -> String:
+    if len(args) == 2:
+        let ls = emit_expr(args[0], enums, structs, scope)
+        let is_val = emit_expr(args[1], enums, structs, scope)
+        return pad + "mom_list_push(" + ls + ", " + is_val + ");\n"
+    panic("push expects 2 arguments")
+
+fn emit_stmt_match(pad: String, scrut: Expr, arms: [MatchArm], enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry], depth: Int) -> String:
+    let ms_var = "_ms_" + to_string(depth)
+    let scrut_src = emit_expr(scrut, enums, structs, scope)
+    let mut out = pad + "{\n"
+    let inner_pad = indent_of(depth + 1)
+    out = out + inner_pad + "MomVal* " + ms_var + " = " + scrut_src + ";\n"
+    out = out + emit_match_arms_stmts(ms_var, arms, "", enums, structs, scope, depth + 1)
+    out + pad + "}\n"
+
+fn emit_block(stmts: [Stmt], enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry], depth: Int) -> String:
     let mut out = ""
     let mut i = 0
     while i < len(stmts):
-        out = out + emit_stmt(stmts[i], scope, fns, depth, ret_ty)
+        out = out + emit_stmt(stmts[i], enums, structs, scope, depth)
         i = i + 1
     out
 
+// ───────────────────────── function codegen ─────────────────────────
+
 fn emit_signature(f: Fn) -> String:
-    let mut src = type_to_c(f.ret) + " " + c_name_of(f.name) + "("
+    let ret = ret_type_c(f.ret)
+    let mut src = ret + " " + c_name_of(f.name) + "("
     if len(f.params) == 0:
         src = src + "void"
     else:
@@ -1111,115 +2013,249 @@ fn emit_signature(f: Fn) -> String:
         while i < len(f.params):
             if i > 0:
                 src = src + ", "
-            src = src + type_to_c(f.params[i].ty) + " " + f.params[i].name
+            src = src + "MomVal* " + f.params[i].pname
             i = i + 1
-    src = src + ")"
-    src
+    src + ")"
 
-fn c_name_of(name: String) -> String:
-    if name == "main":
-        return "mom_main"
-    if is_c_reserved(name):
-        return "mom_" + name
-    name
-
-fn is_c_reserved(name: String) -> Bool:
-    if name == "auto":
-        return true
-    if name == "break":
-        return true
-    if name == "case":
-        return true
-    if name == "char":
-        return true
-    if name == "const":
-        return true
-    if name == "continue":
-        return true
-    if name == "default":
-        return true
-    if name == "do":
-        return true
-    if name == "double":
-        return true
-    if name == "else":
-        return true
-    if name == "enum":
-        return true
-    if name == "extern":
-        return true
-    if name == "float":
-        return true
-    if name == "for":
-        return true
-    if name == "goto":
-        return true
-    if name == "if":
-        return true
-    if name == "inline":
-        return true
-    if name == "int":
-        return true
-    if name == "long":
-        return true
-    if name == "register":
-        return true
-    if name == "restrict":
-        return true
-    if name == "return":
-        return true
-    if name == "short":
-        return true
-    if name == "signed":
-        return true
-    if name == "sizeof":
-        return true
-    if name == "static":
-        return true
-    if name == "struct":
-        return true
-    if name == "switch":
-        return true
-    if name == "typedef":
-        return true
-    if name == "union":
-        return true
-    if name == "unsigned":
-        return true
-    if name == "void":
-        return true
-    if name == "volatile":
-        return true
-    if name == "while":
-        return true
-    false
-
-fn emit_program(fns: [Fn]) -> String:
-    let mut out = ""
-    out = out + "// Generated by the stage-1.1 mom-in-mom compiler.\n"
-    out = out + "#include \"runtime.h\"\n\n"
-
-    // forward declarations
+fn emit_function(f: Fn, enums: [EnumDecl], structs: [StructDecl]) -> String:
+    let sig = emit_signature(f)
+    let scope = []
     let mut i = 0
-    while i < len(fns):
-        out = out + emit_signature(fns[i]) + ";\n"
+    while i < len(f.params):
+        push(scope, LocalEntry { lname: f.params[i].pname, lty: f.params[i].pty })
+        i = i + 1
+    let body_src = emit_block(f.body, enums, structs, scope, 1)
+    sig + " {\n" + body_src + "}\n\n"
+
+// ───────────────────────── preamble codegen ─────────────────────────
+
+fn emit_enum_preamble(edecl: EnumDecl) -> String:
+    let mut out = "// enum " + edecl.ename + "\n"
+    let mut i = 0
+    while i < len(edecl.variants):
+        let vd = edecl.variants[i]
+        out = out + "#define MOM_" + edecl.ename + "_" + vd.vname + " " + to_string(i) + "\n"
+        i = i + 1
+    out + "\n"
+
+fn emit_struct_preamble(sdecl: StructDecl, struct_type_id: Int) -> String:
+    let mut out = "// struct " + sdecl.sname + "\n"
+    out = out + "#define MOM_STRUCT_" + sdecl.sname + " " + to_string(struct_type_id) + "\n"
+    let mut i = 0
+    while i < len(sdecl.fields):
+        let fd = sdecl.fields[i]
+        out = out + "#define MOM_FIELD_" + sdecl.sname + "_" + fd.dname + " " + to_string(i) + "\n"
+        i = i + 1
+    out + "\n"
+
+fn emit_program(prog: Program) -> String:
+    let mut out = ""
+    out = out + "// Generated by stage-1.3 mom-in-mom compiler.\n"
+    out = out + "#include \"runtime.h\"\n"
+    out = out + "#include <inttypes.h>\n"
+    out = out + "#include <string.h>\n\n"
+
+    out = out + "// Built-in type tags\n"
+    out = out + "#define MOM_OPT_None 0\n"
+    out = out + "#define MOM_OPT_Some 1\n"
+    out = out + "#define MOM_RES_Ok   0\n"
+    out = out + "#define MOM_RES_Err  1\n\n"
+
+    // User enum preambles
+    let mut i = 0
+    while i < len(prog.enums):
+        out = out + emit_enum_preamble(prog.enums[i])
+        i = i + 1
+
+    // User struct preambles
+    i = 0
+    while i < len(prog.structs):
+        out = out + emit_struct_preamble(prog.structs[i], i)
+        i = i + 1
+
+    // Forward declarations
+    i = 0
+    while i < len(prog.fns):
+        out = out + emit_signature(prog.fns[i]) + ";\n"
         i = i + 1
     out = out + "\n"
 
-    // function bodies
+    // Function bodies
     i = 0
-    while i < len(fns):
-        let f = fns[i]
-        out = out + emit_signature(f) + " {\n"
-        let scope = []
-        let mut p = 0
-        while p < len(f.params):
-            push(scope, LocalEntry { name: f.params[p].name, ty: f.params[p].ty })
-            p = p + 1
-        out = out + emit_block(f.body, scope, fns, 1, f.ret)
-        out = out + "}\n\n"
+    while i < len(prog.fns):
+        out = out + emit_function(prog.fns[i], prog.enums, prog.structs)
+        i = i + 1
+
+    out
+
+// ───────────────────────── Python-indent pre-pass ─────────────────────────
+
+fn count_leading_spaces(s: String) -> Int:
+    let mut col = 0
+    let n = len(s)
+    while col < n && (s[col] == " " || s[col] == "\t"):
+        col = col + 1
+    col
+
+fn strip_leading_ws(s: String) -> String:
+    let n = len(s)
+    let mut i = 0
+    while i < n && (s[i] == " " || s[i] == "\t"):
+        i = i + 1
+    let mut out = ""
+    while i < n:
+        out = out + s[i]
         i = i + 1
     out
+
+fn is_comment_only_line(trimmed: String) -> Bool:
+    if len(trimmed) < 2:
+        return false
+    trimmed[0] == "/" && trimmed[1] == "/"
+
+fn line_ends_with_block_colon(s: String) -> Bool:
+    let n = len(s)
+    let mut in_str = false
+    let mut last_real = " "
+    let mut i = 0
+    while i < n:
+        let c = s[i]
+        if in_str:
+            if c == "\\" && i + 1 < n:
+                i = i + 2
+            else if c == "\"":
+                in_str = false
+                last_real = "\""
+                i = i + 1
+            else:
+                i = i + 1
+        else if c == "\"":
+            in_str = true
+            i = i + 1
+        else if c == "/" && i + 1 < n && s[i + 1] == "/":
+            i = n
+        else if c == " " || c == "\t":
+            i = i + 1
+        else:
+            last_real = c
+            i = i + 1
+    last_real == ":"
+
+fn replace_trailing_colon_with_open_brace(raw: String) -> String:
+    let mut in_str = false
+    let mut colon_pos = -1
+    let mut i = 0
+    while i < len(raw):
+        let c = raw[i]
+        if in_str:
+            if c == "\\" && i + 1 < len(raw):
+                i = i + 2
+            else if c == "\"":
+                in_str = false
+                i = i + 1
+            else:
+                i = i + 1
+        else if c == "\"":
+            in_str = true
+            i = i + 1
+        else if c == "/" && i + 1 < len(raw) && raw[i + 1] == "/":
+            i = len(raw)
+        else if c == ":":
+            colon_pos = i
+            i = i + 1
+        else:
+            i = i + 1
+    if colon_pos < 0:
+        let mut out = ""
+        let mut j = 0
+        while j < len(raw):
+            out = out + raw[j]
+            j = j + 1
+        return out
+    let mut prefix = ""
+    let mut k = 0
+    while k < colon_pos:
+        prefix = prefix + raw[k]
+        k = k + 1
+    prefix + " {"
+
+fn repeat_spaces(n: Int) -> String:
+    let mut s = ""
+    let mut i = 0
+    while i < n:
+        s = s + " "
+        i = i + 1
+    s
+
+fn desugar_indent_blocks(source: String) -> String:
+    // Build output in a list of strings, then join once at the end.
+    // This avoids the O(n²) string concat that kills performance on
+    // large files like the stage-1 compiler source itself.
+    let lines = []
+    let sn = len(source)
+    let mut line = ""
+    let mut si = 0
+    while si < sn:
+        if source[si] == "\n":
+            push(lines, line)
+            line = ""
+        else:
+            line = line + source[si]
+        si = si + 1
+    if len(line) > 0:
+        push(lines, line)
+
+    let indent_stack = []
+    push(indent_stack, -1)
+
+    let out_lines = []
+    let nlines = len(lines)
+    let mut li = 0
+    while li < nlines:
+        let raw = lines[li]
+        let trimmed = strip_leading_ws(raw)
+
+        if len(trimmed) == 0 || is_comment_only_line(trimmed):
+            push(out_lines, raw)
+            li = li + 1
+        else:
+            let col = count_leading_spaces(raw)
+            let mut closing = true
+            while closing && len(indent_stack) > 1:
+                let top_idx = len(indent_stack) - 1
+                let top = indent_stack[top_idx]
+                if col <= top:
+                    let dummy = match pop(indent_stack):
+                        Some(v) => v
+                        None    => -1
+                    push(out_lines, repeat_spaces(col) + "}")
+                else:
+                    closing = false
+
+            if line_ends_with_block_colon(trimmed):
+                push(out_lines, replace_trailing_colon_with_open_brace(raw))
+                push(indent_stack, col)
+            else:
+                push(out_lines, raw)
+            li = li + 1
+
+    while len(indent_stack) > 1:
+        let dummy = match pop(indent_stack):
+            Some(v) => v
+            None    => -1
+        push(out_lines, "}")
+
+    // Join all lines with newlines
+    let mut out = ""
+    let mut i = 0
+    while i < len(out_lines):
+        out = out + out_lines[i] + "\n"
+        i = i + 1
+    out
+
+// ───────────────────────── runtime struct helpers ─────────────────────────
+// We need these in the runtime to support field access by name.
+// These are declared below but implemented in runtime.c additions.
 
 // ───────────────────────── driver ─────────────────────────
 
@@ -1235,10 +2271,11 @@ fn main():
         Ok(s)  => s
         Err(e) => panic("read_file failed: " + e)
 
-    let tokens = lex(source)
-    let fns    = parse_program(tokens)
-    let c_src  = emit_program(fns)
+    let desugared = desugar_indent_blocks(source)
+    let tokens = lex(desugared)
+    let prog = parse_program(tokens)
+    let c_src = emit_program(prog)
 
     match write_file(output_path, c_src):
-        Ok(_)  => eprint("stage-1.1 compiled " + input_path + " -> " + output_path)
+        Ok(_)  => eprint("stage-1.3 compiled " + input_path + " -> " + output_path)
         Err(e) => panic("write_file failed: " + e)

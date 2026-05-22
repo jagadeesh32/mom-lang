@@ -1,12 +1,9 @@
-// answer.mom — input for the stage-1 mom-in-mom compiler.
-//
-// After bootstrap: `compiler/bootstrap.sh compiler/examples/answer.mom`
-// compiles this to C, links against runtime.c, and runs.
-// Expected stdout: 42
+// answer.mom — stage-1.2 demo: basic arithmetic.
+// After bootstrap: `mom selfhost compiler/examples/answer.mom --run`
+// Expected output: 42
 
-fn main() {
+fn main():
     let a = 6
     let b = 7
     let answer = a * b
     print(answer)
-}

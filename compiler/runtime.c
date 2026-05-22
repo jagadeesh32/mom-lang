@@ -930,6 +930,128 @@ MomVal *mom_range3(int64_t start, int64_t end, int64_t step) {
     return list;
 }
 
+// ── Named struct field access ─────────────────────────────────────────────────
+
+MomVal *mom_struct_get_named(MomVal *v, const char *name) {
+    if (v->tag != MOM_TAG_STRUCT) mom_panic("mom_struct_get_named: not a struct");
+    for (int i = 0; i < v->data.strct.field_count; i++) {
+        if (v->data.strct.field_names && strcmp(v->data.strct.field_names[i], name) == 0)
+            return v->data.strct.fields[i];
+    }
+    char errbuf[256];
+    snprintf(errbuf, sizeof(errbuf), "mom_struct_get_named: field '%s' not found", name);
+    mom_panic(errbuf);
+    return NULL;
+}
+
+void mom_struct_set_named(MomVal *v, const char *name, MomVal *val) {
+    if (v->tag != MOM_TAG_STRUCT) mom_panic("mom_struct_set_named: not a struct");
+    for (int i = 0; i < v->data.strct.field_count; i++) {
+        if (v->data.strct.field_names && strcmp(v->data.strct.field_names[i], name) == 0) {
+            v->data.strct.fields[i] = val;
+            return;
+        }
+    }
+    char errbuf[256];
+    snprintf(errbuf, sizeof(errbuf), "mom_struct_set_named: field '%s' not found", name);
+    mom_panic(errbuf);
+}
+
+// ── Stage-1.3 runtime helpers ─────────────────────────────────────────────────
+
+int64_t mom_val_len(MomVal *v) {
+    if (v->tag == MOM_TAG_STRING) return (int64_t)strlen(v->data.s);
+    if (v->tag == MOM_TAG_LIST)   return (int64_t)v->data.list.len;
+    mom_panic("mom_val_len: expected String or List");
+    return 0;
+}
+
+MomVal *mom_val_index(MomVal *v, MomVal *idx) {
+    int64_t i = idx->tag == MOM_TAG_INT ? idx->data.i : (int64_t)idx->data.f;
+    if (v->tag == MOM_TAG_STRING) return mom_str_char_at(v, (int)i);
+    if (v->tag == MOM_TAG_LIST)   return mom_list_get(v, (int)i);
+    mom_panic("mom_val_index: not indexable");
+    return NULL;
+}
+
+MomVal *mom_and(MomVal *a, MomVal *b) {
+    return mom_bool(mom_bool_val(a) && mom_bool_val(b));
+}
+
+MomVal *mom_or(MomVal *a, MomVal *b) {
+    return mom_bool(mom_bool_val(a) || mom_bool_val(b));
+}
+
+MomVal *mom_pop_opt(MomVal *list) {
+    if (list->tag != MOM_TAG_LIST) mom_panic("mom_pop_opt: not a list");
+    if (list->data.list.len == 0)
+        return mom_variant(MOM_OPT_None, 0);
+    return mom_variant(MOM_OPT_Some, 1, mom_list_pop(list));
+}
+
+MomVal *mom_getenv_opt(MomVal *name) {
+    if (name->tag != MOM_TAG_STRING) mom_panic("mom_getenv_opt: not a string");
+    const char *val = getenv(name->data.s);
+    if (!val) return mom_variant(MOM_OPT_None, 0);
+    return mom_variant(MOM_OPT_Some, 1, mom_str(val));
+}
+
+MomVal *mom_read_file_result(MomVal *path) {
+    if (path->tag != MOM_TAG_STRING) mom_panic("mom_read_file_result: not a string");
+    FILE *fp = fopen(path->data.s, "rb");
+    if (!fp) {
+        char errbuf[512];
+        snprintf(errbuf, sizeof(errbuf), "cannot open '%s': %s",
+                 path->data.s, strerror(errno));
+        return mom_variant(MOM_RES_Err, 1, mom_str(errbuf));
+    }
+    fseek(fp, 0, SEEK_END);
+    long size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    char *buf = (char *)mom_alloc((size_t)size + 1);
+    size_t rd = fread(buf, 1, (size_t)size, fp);
+    buf[rd] = '\0';
+    fclose(fp);
+    return mom_variant(MOM_RES_Ok, 1, mom_str_owned(buf));
+}
+
+MomVal *mom_write_file_result(MomVal *path, MomVal *content) {
+    if (path->tag != MOM_TAG_STRING)    mom_panic("mom_write_file_result: path not a string");
+    if (content->tag != MOM_TAG_STRING) mom_panic("mom_write_file_result: content not a string");
+    FILE *fp = fopen(path->data.s, "wb");
+    if (!fp) {
+        char errbuf[512];
+        snprintf(errbuf, sizeof(errbuf), "cannot write '%s': %s",
+                 path->data.s, strerror(errno));
+        return mom_variant(MOM_RES_Err, 1, mom_str(errbuf));
+    }
+    fputs(content->data.s, fp);
+    fclose(fp);
+    return mom_variant(MOM_RES_Ok, 1, mom_unit());
+}
+
+void mom_eprint_val(MomVal *v) {
+    char *s = mom_val_to_cstr(v);
+    fputs(s, stderr);
+    free(s);
+}
+
+MomVal *mom_to_string(MomVal *v) { return mom_to_str(v); }
+
+int64_t mom_int_from_val(MomVal *v) {
+    if (v->tag == MOM_TAG_INT)  return v->data.i;
+    if (v->tag == MOM_TAG_BOOL) return (int64_t)v->data.b;
+    mom_panic("mom_int_from_val: not an int");
+    return 0;
+}
+
+int mom_bool_from_val(MomVal *v) {
+    if (v->tag == MOM_TAG_BOOL) return v->data.b;
+    if (v->tag == MOM_TAG_INT)  return v->data.i != 0;
+    mom_panic("mom_bool_from_val: not a bool");
+    return 0;
+}
+
 // ── Stage-1 native print helpers ──────────────────────────────────────────────
 // Used by programs compiled by the stage-1 mom-in-mom compiler.
 // These work with raw C types, not MomVal*, for efficiency.

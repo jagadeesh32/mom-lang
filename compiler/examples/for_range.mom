@@ -1,4 +1,4 @@
-// for_range.mom — stage-1.2 demo: for-in-range loop, str() conversion.
+// for_range.mom — stage-1.2 demo: for-in-range loop + str() + println.
 // Expected output:
 //   0
 //   1
@@ -6,13 +6,10 @@
 //   3
 //   sum 0..10 = 45
 
-fn main() {
-    for i in 0..4 {
+fn main():
+    for i in 0..4:
         println(str(i))
-    }
     let mut total = 0
-    for j in 0..10 {
+    for j in 0..10:
         total = total + j
-    }
     println("sum 0..10 = " + str(total))
-}

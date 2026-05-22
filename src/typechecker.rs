@@ -811,7 +811,7 @@ impl TypeChecker {
         if right == &Type::Unknown {
             return Ok(left.clone());
         }
-        if left == right && left.is_numeric() {
+        if left == right && (left.is_numeric() || *left == Type::String) {
             Ok(left.clone())
         } else {
             Err(error(

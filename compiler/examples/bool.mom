@@ -1,21 +1,20 @@
-// bool.mom — stage-1.1 demo: Bool, comparisons, logical ops.
-//
-// Brace-style block syntax — see factorial.mom for context.
-// `&&`, `||`, `!` are stage-1's spelling of the boolean operators
-// (the surface language also accepts `and`/`or`/`not`).
+// bool.mom — stage-1.2 demo: Bool, comparisons, logical ops.
+// Expected output:
+//   true
+//   false
+//   false
+//   true
+//   true
 
-fn between(lo: Int, x: Int, hi: Int) -> Bool {
+fn between(lo: Int, x: Int, hi: Int) -> Bool:
     return lo <= x && x <= hi
-}
 
-fn at_most_one(a: Bool, b: Bool) -> Bool {
+fn at_most_one(a: Bool, b: Bool) -> Bool:
     return !a || !b
-}
 
-fn main() {
+fn main():
     print(between(1, 5, 10))
     print(between(1, 99, 10))
     print(at_most_one(true, true))
     print(at_most_one(true, false))
     print(1 + 2 * 3 == 7)
-}

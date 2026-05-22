@@ -1,14 +1,13 @@
-// hello.mom — stage-1.2 demo: string literal + println.
+// hello.mom — stage-1.2 demo: string literals, string concat, println.
 // Expected output:
 //   hello from stage-1!
+//   hello, mom!
 //   greeting count: 1
 
-fn greet(name: String) -> String {
+fn greet(name: String) -> String:
     return "hello, " + name + "!"
-}
 
-fn main() {
+fn main():
     println("hello from stage-1!")
     println(greet("mom"))
     println("greeting count: " + str(1))
-}

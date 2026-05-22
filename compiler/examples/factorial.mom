@@ -1,20 +1,13 @@
-// factorial.mom — stage-1.1 demo: while loop + mutable state.
-//
-// The stage-1 mom-in-mom compiler currently parses brace-style blocks
-// only; this file therefore uses `{ }` rather than the Python-style
-// `:` form used elsewhere in the repo. Once stage-1 grows an INDENT
-// lexer, this file will be re-rendered in the canonical style.
+// factorial.mom — stage-1.2 demo: while loop + mutable state.
+// Expected output: 5040
 
-fn factorial(n: Int) -> Int {
+fn factorial(n: Int) -> Int:
     let mut result = 1
     let mut i = 1
-    while i <= n {
+    while i <= n:
         result = result * i
         i = i + 1
-    }
     return result
-}
 
-fn main() {
+fn main():
     print(factorial(7))
-}

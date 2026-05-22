@@ -158,6 +158,55 @@ void *mom_alloc(size_t size);
 char *mom_strdup(const char *s);
 char *mom_strcat_alloc(const char *a, const char *b);
 
+// ── Named struct field access (stage-1.3) ─────────────────────────────────────
+// Access struct fields by name string rather than by index.
+// These walk the field_names array and dispatch to get/set by index.
+MomVal *mom_struct_get_named(MomVal *v, const char *name);
+void    mom_struct_set_named(MomVal *v, const char *name, MomVal *val);
+
+// ── Stage-1.3 runtime helpers (MomVal*-based polymorphic ops) ─────────────────
+// Used by stage-1.3+ generated programs where every value is MomVal*.
+
+// Polymorphic length: works on String and List.
+int64_t mom_val_len(MomVal *v);
+
+// Polymorphic index: v[i] for String (returns 1-char MomVal* string) or List.
+MomVal *mom_val_index(MomVal *v, MomVal *idx);
+
+// Logical ops returning MomVal* bool.
+MomVal *mom_and(MomVal *a, MomVal *b);
+MomVal *mom_or(MomVal *a, MomVal *b);
+
+// pop(list) → Option variant (Some(item) or None).
+MomVal *mom_pop_opt(MomVal *list);
+
+// getenv(name) → Option variant (Some(str) or None).
+MomVal *mom_getenv_opt(MomVal *name);
+
+// read_file(path) → Result variant (Ok(str) or Err(msg)).
+MomVal *mom_read_file_result(MomVal *path);
+
+// write_file(path, content) → Result variant (Ok(()) or Err(msg)).
+MomVal *mom_write_file_result(MomVal *path, MomVal *content);
+
+// eprint for MomVal* strings.
+void mom_eprint_val(MomVal *v);
+
+// to_string: any value → MomVal* string representation.
+MomVal *mom_to_string(MomVal *v);
+
+// int conversion.
+int64_t mom_int_from_val(MomVal *v);
+
+// bool extraction.
+int mom_bool_from_val(MomVal *v);
+
+// Predefined Option/Result tag constants.
+#define MOM_OPT_None  0
+#define MOM_OPT_Some  1
+#define MOM_RES_Ok    0
+#define MOM_RES_Err   1
+
 // ── Stage-1 native print helpers ──────────────────────────────────────────────
 // These take raw C types, not MomVal*, for use by stage-1 compiled programs.
 #include <inttypes.h>

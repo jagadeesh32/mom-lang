@@ -626,3 +626,76 @@ fn selfhost_fixed_point() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert_eq!(stdout, "42\n", "sanity check after fixed-point failed");
 }
+
+// ── stage-1.2 Python-style (colon + indent) tests ─────────────────────────────
+// These verify the desugar_indent_blocks pre-pass converts Python-style
+// indented-block syntax into brace-style before lexing.
+
+#[test]
+fn stage1_2_compiles_python_style_factorial() {
+    let out = run_stage1(
+        r#"
+        fn factorial(n: Int) -> Int:
+            let mut result = 1
+            let mut i = 1
+            while i <= n:
+                result = result * i
+                i = i + 1
+            return result
+
+        fn main():
+            print(factorial(7))
+        "#,
+        "py_factorial",
+    );
+    assert_eq!(out, "5040\n");
+}
+
+#[test]
+fn stage1_2_compiles_python_style_fibonacci() {
+    let out = run_stage1(
+        r#"
+        fn fib(n: Int) -> Int:
+            if n <= 1:
+                return n
+            return fib(n - 1) + fib(n - 2)
+
+        fn main():
+            print(fib(10))
+        "#,
+        "py_fib",
+    );
+    assert_eq!(out, "55\n");
+}
+
+#[test]
+fn stage1_2_compiles_python_style_for_in_range() {
+    let out = run_stage1(
+        r#"
+        fn main():
+            let mut total = 0
+            for i in 0..10:
+                total = total + i
+            println("sum = " + str(total))
+        "#,
+        "py_for",
+    );
+    assert_eq!(out, "sum = 45\n");
+}
+
+#[test]
+fn stage1_2_python_style_mixed_with_braces() {
+    // Both styles can appear in the same file.
+    let out = run_stage1(
+        r#"
+        fn double(n: Int) -> Int {
+            return n * 2
+        }
+
+        fn main():
+            print(double(21))
+        "#,
+        "py_mixed",
+    );
+    assert_eq!(out, "42\n");
+}
