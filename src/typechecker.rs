@@ -479,7 +479,7 @@ impl TypeChecker {
                     | "enumerate" | "zip" | "range"
                     | "split" | "join" | "upper" | "lower" | "strip"
                     | "lstrip" | "rstrip" | "starts_with" | "ends_with"
-                    | "contains" | "find" | "replace" | "chars"
+                    | "contains" | "find" | "replace" | "chars" | "substr"
                     | "str" | "int" | "float" | "bool"
                     | "abs" | "min" | "max" | "pow" | "round" | "floor"
                     | "ceil" | "sqrt" | "hex" | "oct" | "bin" | "ord" | "chr"

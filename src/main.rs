@@ -9,10 +9,17 @@ use mom::lint::{Category, LintConfig, Severity};
 use mom::manifest::Manifest;
 
 fn main() {
-    if let Err(diagnostic) = run_cli() {
-        eprintln!("error: {diagnostic}");
-        process::exit(1);
-    }
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(|| {
+            if let Err(diagnostic) = run_cli() {
+                eprintln!("error: {diagnostic}");
+                process::exit(1);
+            }
+        })
+        .expect("failed to spawn main thread")
+        .join()
+        .expect("main thread panicked");
 }
 
 fn run_cli() -> LangResult<()> {

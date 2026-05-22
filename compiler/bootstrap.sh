@@ -14,7 +14,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-STAGE0="${MOM_BIN:-$REPO_ROOT/target/debug/mom}"
+STAGE0="${MOM_BIN:-$REPO_ROOT/target/release/mom}"
 COMPILER_SRC="$REPO_ROOT/compiler/src/main.mom"
 RUNTIME_C="$REPO_ROOT/compiler/runtime.c"
 RUNTIME_H_DIR="$REPO_ROOT/compiler"

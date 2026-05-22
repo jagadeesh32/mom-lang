@@ -60,7 +60,7 @@ pub enum Builtin {
     Range_, RangeStep,
     // String operations
     Split, Join, Upper, Lower, Strip, Lstrip, Rstrip,
-    StartsWith, EndsWith, Contains, Find, Replace, Chars,
+    StartsWith, EndsWith, Contains, Find, Replace, Chars, Substr,
     // Type checks
     TypeOf, IsInt, IsFloat, IsString, IsBool, IsList, IsDict, IsNone,
     // System
@@ -504,13 +504,13 @@ impl Interpreter {
                         Ok(Flow::Value(items[real as usize].clone()))
                     }
                     (Value::String(s), Value::Int(idx)) => {
-                        let chars: Vec<char> = s.chars().collect();
-                        let len = chars.len() as i64;
+                        let bytes = s.as_bytes();
+                        let len = bytes.len() as i64;
                         let real = if idx < 0 { len + idx } else { idx };
                         if real < 0 || real >= len {
                             return Err(error(format!("index {idx} out of range (len={len})"), span));
                         }
-                        Ok(Flow::Value(Value::String(chars[real as usize].to_string())))
+                        Ok(Flow::Value(Value::String((bytes[real as usize] as char).to_string())))
                     }
                     (Value::Dict(map), Value::String(key)) => {
                         let v = map.borrow().get(&key).cloned()
@@ -677,6 +677,7 @@ impl Interpreter {
             "find"        => Builtin::Find,
             "replace"     => Builtin::Replace,
             "chars"       => Builtin::Chars,
+            "substr"      => Builtin::Substr,
             // Type checks
             "type_of"     => Builtin::TypeOf,
             "is_int"      => Builtin::IsInt,
@@ -894,7 +895,7 @@ impl Interpreter {
                 check_args!(1);
                 match &args[0] {
                     Value::List(items) => Ok(Value::Int(items.borrow().len() as i64)),
-                    Value::String(s)   => Ok(Value::Int(s.chars().count() as i64)),
+                    Value::String(s)   => Ok(Value::Int(s.len() as i64)),
                     Value::Dict(map)   => Ok(Value::Int(map.borrow().len() as i64)),
                     Value::Range(a, b) => Ok(Value::Int((b - a).max(0))),
                     other => Err(error(format!("len: unsupported type {other}"), span)),
@@ -1257,6 +1258,23 @@ impl Interpreter {
                         Ok(Value::List(Rc::new(RefCell::new(chars))))
                     }
                     other => Err(error(format!("chars: expected String, got {other}"), span)),
+                }
+            }
+            Builtin::Substr => {
+                match args.as_slice() {
+                    [Value::String(s), Value::Int(start), Value::Int(end)] => {
+                        let n = s.len() as i64;
+                        let lo = (*start).max(0).min(n) as usize;
+                        let hi = (*end).max(0).min(n) as usize;
+                        let hi = hi.max(lo);
+                        Ok(Value::String(s[lo..hi].to_string()))
+                    }
+                    [Value::String(s), Value::Int(start)] => {
+                        let n = s.len() as i64;
+                        let lo = (*start).max(0).min(n) as usize;
+                        Ok(Value::String(s[lo..].to_string()))
+                    }
+                    _ => Err(error("substr(str, start[, end]) expects String and Int(s)", span)),
                 }
             }
 

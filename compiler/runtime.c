@@ -39,6 +39,46 @@ char *mom_strcat_alloc(const char *a, const char *b) {
     return out;
 }
 
+char *mom_strjoin_alloc(MomVal *list, const char *sep) {
+    int n = list->data.list.len;
+    size_t sep_len = strlen(sep);
+    size_t total = 0;
+    for (int i = 0; i < n; i++) {
+        total += strlen(list->data.list.items[i]->data.s);
+        if (i < n - 1) total += sep_len;
+    }
+    char *buf = (char *)mom_alloc(total + 1);
+    char *p = buf;
+    for (int i = 0; i < n; i++) {
+        const char *s = list->data.list.items[i]->data.s;
+        size_t slen = strlen(s);
+        memcpy(p, s, slen);
+        p += slen;
+        if (i < n - 1) {
+            memcpy(p, sep, sep_len);
+            p += sep_len;
+        }
+    }
+    *p = '\0';
+    return buf;
+}
+
+MomVal *mom_str_join(MomVal *list, MomVal *sep) {
+    return mom_str_owned(mom_strjoin_alloc(list, sep->data.s));
+}
+
+MomVal *mom_str_substr(MomVal *s, MomVal *start, MomVal *end) {
+    const char *src = s->data.s;
+    int64_t n = (int64_t)strlen(src);
+    int64_t lo = start->data.i < 0 ? 0 : start->data.i > n ? n : start->data.i;
+    int64_t hi = end->data.i < lo ? lo : end->data.i > n ? n : end->data.i;
+    size_t len = (size_t)(hi - lo);
+    char *buf = (char *)mom_alloc(len + 1);
+    memcpy(buf, src + lo, len);
+    buf[len] = '\0';
+    return mom_str_owned(buf);
+}
+
 // ── Control ───────────────────────────────────────────────────────────────────
 
 void mom_panic(const char *msg) {

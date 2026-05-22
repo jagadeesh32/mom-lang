@@ -366,10 +366,10 @@ fn lex(source: String) -> [Token]:
                 i = i + 1
             push(tokens, TInt(value))
         else if char_is_alpha(c):
-            let mut text = ""
+            let id_start = i
             while i < n && char_is_alnum(source[i]):
-                text = text + source[i]
                 i = i + 1
+            let text = substr(source, id_start, i)
             if text == "fn":
                 push(tokens, TFn)
             else if text == "let":
@@ -1356,11 +1356,10 @@ fn parse_function(state: ParseState) -> Fn:
                     panic("expected ',' or ')'")
             let pname = expect_ident(state)
             let tcolon = peek(state)
-            let pty = if is_tcolon(tcolon):
+            let mut pty = TyNamed("_")
+            if is_tcolon(tcolon):
                 let dummy_c = advance(state)
-                parse_type(state)
-            else:
-                TyNamed("_")
+                pty = parse_type(state)
             push(params, Param { pname: pname, pty: pty })
             first = false
             let nt = peek(state)
@@ -1368,11 +1367,10 @@ fn parse_function(state: ParseState) -> Fn:
                 done = true
     expect_rparen(state)
     let t2 = peek(state)
-    let ret = if is_tarrow(t2):
+    let mut ret = TyUnit
+    if is_tarrow(t2):
         let dummy2 = advance(state)
-        parse_type(state)
-    else:
-        TyUnit
+        ret = parse_type(state)
     let body = parse_block(state)
     Fn { name: name, params: params, ret: ret, body: body }
 
@@ -1645,8 +1643,8 @@ fn emit_expr(e: Expr, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEnt
         ELe(l, r)   => emit_binop(l, r, "mom_le", enums, structs, scope)
         EGt(l, r)   => emit_binop(l, r, "mom_gt", enums, structs, scope)
         EGe(l, r)   => emit_binop(l, r, "mom_ge", enums, structs, scope)
-        EAnd(l, r)  => emit_binop(l, r, "mom_and", enums, structs, scope)
-        EOr(l, r)   => emit_binop(l, r, "mom_or", enums, structs, scope)
+        EAnd(l, r)  => emit_and_sc(l, r, enums, structs, scope)
+        EOr(l, r)   => emit_or_sc(l, r, enums, structs, scope)
         ENot(inner) => "mom_not(" + emit_expr(inner, enums, structs, scope) + ")"
         ENeg(inner) => "mom_neg(" + emit_expr(inner, enums, structs, scope) + ")"
 
@@ -1681,6 +1679,12 @@ fn emit_expr_var_resolved(name: String, enums: [EnumDecl]) -> String:
 
 fn emit_binop(l: Expr, r: Expr, fn_name: String, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry]) -> String:
     fn_name + "(" + emit_expr(l, enums, structs, scope) + ", " + emit_expr(r, enums, structs, scope) + ")"
+
+fn emit_and_sc(l: Expr, r: Expr, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry]) -> String:
+    "(mom_bool_val(" + emit_expr(l, enums, structs, scope) + ") ? " + emit_expr(r, enums, structs, scope) + " : mom_bool(0))"
+
+fn emit_or_sc(l: Expr, r: Expr, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry]) -> String:
+    "(!mom_bool_val(" + emit_expr(l, enums, structs, scope) + ") ? " + emit_expr(r, enums, structs, scope) + " : mom_bool(1))"
 
 fn emit_variant1(vname: String, arg: Expr, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry]) -> String:
     let args = []
@@ -1726,6 +1730,20 @@ fn emit_struct_lit(name: String, fields: [FieldInit], enums: [EnumDecl], structs
 
 fn emit_call(name: String, args: [Expr], enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry]) -> String:
     // Built-in functions
+    if name == "join":
+        if len(args) == 1:
+            return "mom_str_join(" + emit_expr(args[0], enums, structs, scope) + ", mom_str(\"\"))"
+        if len(args) == 2:
+            return "mom_str_join(" + emit_expr(args[0], enums, structs, scope) + ", " + emit_expr(args[1], enums, structs, scope) + ")"
+        panic("join expects 1 or 2 arguments")
+    if name == "substr":
+        if len(args) == 3:
+            return "mom_str_substr(" + emit_expr(args[0], enums, structs, scope) + ", " + emit_expr(args[1], enums, structs, scope) + ", " + emit_expr(args[2], enums, structs, scope) + ")"
+        panic("substr expects 3 arguments")
+    if name == "split":
+        if len(args) == 2:
+            return "mom_str_split(" + emit_expr(args[0], enums, structs, scope) + ", " + emit_expr(args[1], enums, structs, scope) + ")"
+        panic("split expects 2 arguments")
     if name == "print" || name == "println":
         if len(args) == 1:
             return "mom_println(" + emit_expr(args[0], enums, structs, scope) + ")"
@@ -1863,7 +1881,7 @@ fn emit_variant_binding_n(pad: String, sv: String, bs: [String]) -> String:
 
 fn emit_match_arms_stmts(ms_var: String, arms: [MatchArm], result_var: String, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry], depth: Int) -> String:
     let pad = indent_of(depth)
-    let mut out = ""
+    let parts = []
     let mut i = 0
     while i < len(arms):
         let arm = arms[i]
@@ -1871,29 +1889,28 @@ fn emit_match_arms_stmts(ms_var: String, arms: [MatchArm], result_var: String, e
         let bindings = emit_match_bindings(arm.pattern, ms_var, indent_of(depth + 1))
         let body_src = emit_block(arm.body, enums, structs, scope, depth + 1)
         if i == 0:
-            out = out + pad + "if (" + cond + ") {\n" + bindings + body_src + pad + "}"
+            push(parts, pad + "if (" + cond + ") {\n" + bindings + body_src + pad + "}")
         else:
-            out = out + " else if (" + cond + ") {\n" + bindings + body_src + pad + "}"
+            push(parts, " else if (" + cond + ") {\n" + bindings + body_src + pad + "}")
         i = i + 1
-    out + "\n"
+    join(parts, "") + "\n"
 
 fn emit_match_arms_with_result(ms_var: String, arms: [MatchArm], result_var: String, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry], depth: Int) -> String:
     let pad = indent_of(depth)
-    let mut out = ""
+    let parts = []
     let mut i = 0
     while i < len(arms):
         let arm = arms[i]
         let cond = emit_match_cond(arm.pattern, ms_var, enums)
         let bindings = emit_match_bindings(arm.pattern, ms_var, indent_of(depth + 1))
         let body = arm.body
-        // last stmt of body becomes the result assignment
         let body_src = emit_block_with_result(body, result_var, enums, structs, scope, depth + 1)
         if i == 0:
-            out = out + pad + "if (" + cond + ") {\n" + bindings + body_src + pad + "}"
+            push(parts, pad + "if (" + cond + ") {\n" + bindings + body_src + pad + "}")
         else:
-            out = out + " else if (" + cond + ") {\n" + bindings + body_src + pad + "}"
+            push(parts, " else if (" + cond + ") {\n" + bindings + body_src + pad + "}")
         i = i + 1
-    out + "\n"
+    join(parts, "") + "\n"
 
 fn is_sreturn(s: Stmt) -> Bool:
     match s:
@@ -1931,6 +1948,10 @@ fn emit_block_with_result(stmts: [Stmt], result_var: String, enums: [EnumDecl], 
     if is_sexpr(last):
         let e = get_sexpr_expr(last)
         return out + indent_of(depth) + result_var + " = " + emit_expr(e, enums, structs, scope) + ";\n"
+    if is_sif(last):
+        return out + emit_if_with_result(last, result_var, enums, structs, scope, depth)
+    if is_smatch_stmt(last):
+        return out + emit_match_stmt_with_result(last, result_var, enums, structs, scope, depth)
     out + emit_stmt(last, enums, structs, scope, depth) + indent_of(depth) + result_var + " = mom_unit();\n"
 
 // ───────────────────────── statement codegen ─────────────────────────
@@ -1951,7 +1972,6 @@ fn emit_stmt(stmt: Stmt, enums: [EnumDecl], structs: [StructDecl], scope: [Local
         SReturnUnit                  => pad + "return;\n"
         SExpr(value)                 => emit_stmt_expr(pad, value, enums, structs, scope)
         SMatch(scrut, arms)          => emit_stmt_match(pad, scrut, arms, enums, structs, scope, depth)
-        SBlock(inner)                => "{\n" + emit_stmt(inner, enums, structs, scope, depth + 1) + pad + "}\n"
 
 fn emit_stmt_let(pad: String, name: String, value: Expr, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry], depth: Int) -> String:
     let val_src = emit_expr(value, enums, structs, scope)
@@ -2032,12 +2052,12 @@ fn emit_stmt_match(pad: String, scrut: Expr, arms: [MatchArm], enums: [EnumDecl]
     out + pad + "}\n"
 
 fn emit_block(stmts: [Stmt], enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry], depth: Int) -> String:
-    let mut out = ""
+    let parts = []
     let mut i = 0
     while i < len(stmts):
-        out = out + emit_stmt(stmts[i], enums, structs, scope, depth)
+        push(parts, emit_stmt(stmts[i], enums, structs, scope, depth))
         i = i + 1
-    out
+    join(parts, "")
 
 // ───────────────────────── function codegen ─────────────────────────
 
@@ -2055,6 +2075,77 @@ fn emit_signature(f: Fn) -> String:
             i = i + 1
     src + ")"
 
+// ── Stmt classifiers for emit_block_with_result ──────────────────────────────
+
+fn is_sif(s: Stmt) -> Bool:
+    match s:
+        SIf(c, t, e) => true
+        _            => false
+
+fn is_smatch_stmt(s: Stmt) -> Bool:
+    match s:
+        SMatch(sc, arms) => true
+        _                => false
+
+fn get_sif_cond(s: Stmt) -> Expr:
+    match s:
+        SIf(c, t, e) => c
+        _            => EVar("__unit__")
+
+fn get_sif_then(s: Stmt) -> [Stmt]:
+    match s:
+        SIf(c, t, e) => t
+        _            => []
+
+fn get_sif_else(s: Stmt) -> [Stmt]:
+    match s:
+        SIf(c, t, e) => e
+        _            => []
+
+fn get_smatch_scrut(s: Stmt) -> Expr:
+    match s:
+        SMatch(sc, arms) => sc
+        _                => EVar("__unit__")
+
+fn get_smatch_arms(s: Stmt) -> [MatchArm]:
+    match s:
+        SMatch(sc, arms) => arms
+        _                => []
+
+fn emit_if_with_result(s: Stmt, result_var: String, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry], depth: Int) -> String:
+    let cond = get_sif_cond(s)
+    let then_s = get_sif_then(s)
+    let else_s = get_sif_else(s)
+    let pad = indent_of(depth)
+    let cond_src = emit_expr(cond, enums, structs, scope)
+    let mut out = pad + "if (mom_bool_val(" + cond_src + ")) {\n"
+    out = out + emit_block_with_result(then_s, result_var, enums, structs, scope, depth + 1)
+    if len(else_s) > 0:
+        out = out + pad + "} else {\n"
+        out = out + emit_block_with_result(else_s, result_var, enums, structs, scope, depth + 1)
+    else:
+        out = out + pad + "} else {\n"
+        out = out + indent_of(depth + 1) + result_var + " = mom_unit();\n"
+    out + pad + "}\n"
+
+fn emit_match_stmt_with_result(s: Stmt, result_var: String, enums: [EnumDecl], structs: [StructDecl], scope: [LocalEntry], depth: Int) -> String:
+    let scrut = get_smatch_scrut(s)
+    let arms = get_smatch_arms(s)
+    let pad = indent_of(depth)
+    let ms_var = "_ms_r"
+    let scrut_src = emit_expr(scrut, enums, structs, scope)
+    let mut out = pad + "{\n"
+    out = out + indent_of(depth + 1) + "MomVal* " + ms_var + " = " + scrut_src + ";\n"
+    out = out + emit_match_arms_with_result(ms_var, arms, result_var, enums, structs, scope, depth + 1)
+    out + pad + "}\n"
+
+// ── is_void_type ─────────────────────────────────────────────────────────────
+
+fn is_void_type(ty: Type) -> Bool:
+    match ty:
+        TyUnit => true
+        _      => false
+
 fn emit_function(f: Fn, enums: [EnumDecl], structs: [StructDecl]) -> String:
     let sig = emit_signature(f)
     let scope = []
@@ -2062,8 +2153,12 @@ fn emit_function(f: Fn, enums: [EnumDecl], structs: [StructDecl]) -> String:
     while i < len(f.params):
         push(scope, LocalEntry { lname: f.params[i].pname, lty: f.params[i].pty })
         i = i + 1
-    let body_src = emit_block(f.body, enums, structs, scope, 1)
-    sig + " {\n" + body_src + "}\n\n"
+    if is_void_type(f.ret):
+        return sig + " {\n" + emit_block(f.body, enums, structs, scope, 1) + "}\n\n"
+    let ret_var = "__ret__"
+    let decl = "    MomVal* " + ret_var + ";\n"
+    let body_src = emit_block_with_result(f.body, ret_var, enums, structs, scope, 1)
+    sig + " {\n" + decl + body_src + "    return " + ret_var + ";\n}\n\n"
 
 // ───────────────────────── preamble codegen ─────────────────────────
 
@@ -2087,44 +2182,43 @@ fn emit_struct_preamble(sdecl: StructDecl, struct_type_id: Int) -> String:
     out + "\n"
 
 fn emit_program(prog: Program) -> String:
-    let mut out = ""
-    out = out + "// Generated by stage-1.3 mom-in-mom compiler.\n"
-    out = out + "#include \"runtime.h\"\n"
-    out = out + "#include <inttypes.h>\n"
-    out = out + "#include <string.h>\n\n"
-
-    out = out + "// Built-in type tags\n"
-    out = out + "#define MOM_OPT_None 0\n"
-    out = out + "#define MOM_OPT_Some 1\n"
-    out = out + "#define MOM_RES_Ok   0\n"
-    out = out + "#define MOM_RES_Err  1\n\n"
+    let parts = []
+    push(parts, "// Generated by stage-1.3 mom-in-mom compiler.\n")
+    push(parts, "#include \"runtime.h\"\n")
+    push(parts, "#include <inttypes.h>\n")
+    push(parts, "#include <string.h>\n\n")
+    push(parts, "// Built-in type tags\n")
+    push(parts, "#define MOM_OPT_None 0\n")
+    push(parts, "#define MOM_OPT_Some 1\n")
+    push(parts, "#define MOM_RES_Ok   0\n")
+    push(parts, "#define MOM_RES_Err  1\n\n")
 
     // User enum preambles
     let mut i = 0
     while i < len(prog.enums):
-        out = out + emit_enum_preamble(prog.enums[i])
+        push(parts, emit_enum_preamble(prog.enums[i]))
         i = i + 1
 
     // User struct preambles
     i = 0
     while i < len(prog.structs):
-        out = out + emit_struct_preamble(prog.structs[i], i)
+        push(parts, emit_struct_preamble(prog.structs[i], i))
         i = i + 1
 
     // Forward declarations
     i = 0
     while i < len(prog.fns):
-        out = out + emit_signature(prog.fns[i]) + ";\n"
+        push(parts, emit_signature(prog.fns[i]) + ";\n")
         i = i + 1
-    out = out + "\n"
+    push(parts, "\n")
 
     // Function bodies
     i = 0
     while i < len(prog.fns):
-        out = out + emit_function(prog.fns[i], prog.enums, prog.structs)
+        push(parts, emit_function(prog.fns[i], prog.enums, prog.structs))
         i = i + 1
 
-    out
+    join(parts, "")
 
 // ───────────────────────── Python-indent pre-pass ─────────────────────────
 
@@ -2204,18 +2298,9 @@ fn replace_trailing_colon_with_open_brace(raw: String) -> String:
         else:
             i = i + 1
     if colon_pos < 0:
-        let mut out = ""
-        let mut j = 0
-        while j < len(raw):
-            out = out + raw[j]
-            j = j + 1
-        return out
-    let mut prefix = ""
-    let mut k = 0
-    while k < colon_pos:
-        prefix = prefix + raw[k]
-        k = k + 1
-    prefix + " {"
+        return substr(raw, 0, len(raw))
+    substr(raw, 0, colon_pos) + " {"
+
 
 fn repeat_spaces(n: Int) -> String:
     let mut s = ""
@@ -2226,22 +2311,16 @@ fn repeat_spaces(n: Int) -> String:
     s
 
 fn desugar_indent_blocks(source: String) -> String:
-    // Build output in a list of strings, then join once at the end.
-    // This avoids the O(n²) string concat that kills performance on
-    // large files like the stage-1 compiler source itself.
+    // Split source into lines in one O(n) pass using the split builtin.
+    let raw_lines = split(source, "\n")
+    // Drop trailing empty line that split adds when source ends with \n.
     let lines = []
-    let sn = len(source)
-    let mut line = ""
-    let mut si = 0
-    while si < sn:
-        if source[si] == "\n":
-            push(lines, line)
-            line = ""
-        else:
-            line = line + source[si]
-        si = si + 1
-    if len(line) > 0:
-        push(lines, line)
+    let mut li2 = 0
+    while li2 < len(raw_lines):
+        let rl = raw_lines[li2]
+        if li2 < len(raw_lines) - 1 || len(rl) > 0:
+            push(lines, rl)
+        li2 = li2 + 1
 
     let indent_stack = []
     push(indent_stack, -1)
@@ -2283,13 +2362,8 @@ fn desugar_indent_blocks(source: String) -> String:
             None    => -1
         push(out_lines, "}")
 
-    // Join all lines with newlines
-    let mut out = ""
-    let mut i = 0
-    while i < len(out_lines):
-        out = out + out_lines[i] + "\n"
-        i = i + 1
-    out
+    // Join all lines with newlines — O(n) single allocation.
+    join(out_lines, "\n") + "\n"
 
 // ───────────────────────── runtime struct helpers ─────────────────────────
 // We need these in the runtime to support field access by name.

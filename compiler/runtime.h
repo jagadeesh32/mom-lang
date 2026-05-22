@@ -158,6 +158,12 @@ void *mom_alloc(size_t size);
 char *mom_strdup(const char *s);
 char *mom_strcat_alloc(const char *a, const char *b);
 
+// Join list of strings with a separator — O(n) single allocation.
+MomVal *mom_str_join(MomVal *list, MomVal *sep);
+
+// Substring: substr(s, start, end) — single allocation, O(end-start).
+MomVal *mom_str_substr(MomVal *s, MomVal *start, MomVal *end);
+
 // ── Named struct field access (stage-1.3) ─────────────────────────────────────
 // Access struct fields by name string rather than by index.
 // These walk the field_names array and dispatch to get/set by index.
