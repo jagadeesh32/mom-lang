@@ -6,16 +6,45 @@ infrastructure, networking stacks, and high-performance backend services.
 
 Source files use the `.mom` extension. The compiler binary is `mom`.
 
-mom combines:
+## Language Features
 
-| Influence  | Property                                                      |
-|------------|---------------------------------------------------------------|
-| Python     | readable, low-ceremony syntax with indentation-based blocks   |
-| Rust       | memory safety, sum types, traits, exhaustive pattern matching |
-| Erlang/OTP | actors, message passing, supervised fault isolation           |
-| Zig        | extremely fast incremental compilation, no hidden allocations |
-| Go         | lightweight tasks, easy concurrency, simple build flow        |
-| C / C++    | first-class FFI, predictable performance, no managed runtime  |
+**Syntax**
+- Python-style indentation-based blocks (`if`, `fn`, `struct`, etc.) — brace `{ }` style also accepted
+- `let` / `let mut` bindings, immutable by default
+- `if` / `elif` / `else`, `while`, `for x in`, `break`, `continue`
+- `match` — exhaustive pattern matching on literals, enums, and payloads
+- `fn` functions with explicit return types; `async fn` for async functions
+- `pub`, `const`, `defer`, `unsafe`, `comptime`, `region`
+- Attributes: `#[name]` on functions and items
+
+**Type System**
+- Primitive types: `Int`, `Float`, `Bool`, `String`
+- `struct` with named fields and generic parameters
+- `enum` with payload variants (algebraic data types / sum types)
+- `trait` declarations and `impl Trait for Type` dispatch
+- Built-in `Option[T]` and `Result[T, E]`; `?` propagation operator
+- Generic functions `fn foo[T](...)` and generic types
+- List type `[T]` with indexing and iteration
+
+**Memory Safety**
+- Borrow checker enforced at compile time: move semantics, `&` shared borrows, `&mut` exclusive borrows
+- No null pointers — use `Option[T]`
+- `unsafe` escape hatch for low-level code
+- `region` allocations for arena-style memory management
+
+**Concurrency & Actors**
+- `actor` keyword — state machine desugared to struct + step method
+- `spawn` lightweight tasks, `async` / `await`
+- `supervise` for fault-isolated supervision trees
+- Channel-based message passing with `receive`
+
+**C Interoperability**
+- `extern "C" { ... }` blocks for direct C FFI
+- Links against native `.so` / `.a` libraries; no runtime needed
+
+**Operators & Expressions**
+- Arithmetic, comparison, logical (`and` / `or` / `not`)
+- Pipe-forward `|>`, range `..`, borrow `&` / `&mut`
 
 The language goal is **simple to learn, safe by default, fast at runtime,
 fast to compile, and able to compile itself**.
@@ -103,7 +132,7 @@ and places it in `~/.local/bin`.
 
 ## Building from source
 
-You need **Rust 1.78+** and `cargo`.
+The stage-0 compiler is written in Rust. You need **Rust 1.78+** and `cargo`.
 
 ```sh
 git clone https://github.com/your-org/mom.git
@@ -119,6 +148,12 @@ To cross-compile for a different target (requires
 ```sh
 cross build --release --target aarch64-unknown-linux-gnu
 cross build --release --target aarch64-pc-windows-msvc
+```
+
+To exercise the stage-1 self-hosted compiler after building:
+
+```sh
+./target/release/mom selfhost compiler/src/main.mom -o mom-stage1 --run
 ```
 
 ---
@@ -142,41 +177,89 @@ mom run hello.mom
 ### More examples
 
 ```mom
-// Fibonacci — recursion + if/elif/else
-fn fib(n: Int) -> Int:
-    if n <= 1:
-        return n
-    return fib(n - 1) + fib(n - 2)
+// Structs and methods
+struct Point:
+    x: Int
+    y: Int
+
+impl Point:
+    fn shift(self, dx: Int, dy: Int) -> Point:
+        Point { x: self.x + dx, y: self.y + dy }
 
 fn main():
-    print(fib(10))   // 55
+    let p = Point { x: 3, y: 4 }
+    let q = p.shift(1, 1)
+    print(q.x)   // 4
 ```
 
 ```mom
-// Factorial — while loop + mutable bindings
-fn factorial(n: Int) -> Int:
-    let mut result = 1
-    let mut i = 1
-    while i <= n:
-        result = result * i
-        i = i + 1
-    return result
+// Enums and exhaustive pattern matching
+enum Shape:
+    Circle(Float)
+    Rect(Float, Float)
+
+fn area(s: Shape) -> Float:
+    match s:
+        Circle(r)    => 3.14159 * r * r
+        Rect(w, h)   => w * h
 
 fn main():
-    print(factorial(7))   // 5040
+    print(area(Circle(2.0)))   // 12.566...
+    print(area(Rect(3.0, 4.0)))  // 12.0
 ```
 
 ```mom
-// Boolean logic — Python-style keywords
-fn between(lo: Int, x: Int, hi: Int) -> Bool:
-    return lo <= x and x <= hi
+// Option and Result with ? propagation
+fn parse(v: Int) -> Result[Int, String]:
+    if v < 0 { Err("negative") } else { Ok(v * 2) }
+
+fn doubled_plus_one(v: Int) -> Result[Int, String]:
+    let inner = parse(v)?
+    Ok(inner + 1)
 
 fn main():
-    print(between(1, 5, 10))    // True
-    print(between(1, 99, 10))   // False
+    match doubled_plus_one(5):
+        Ok(n)  => print(n)     // 11
+        Err(e) => print(e)
 ```
 
-The old `{ }` brace syntax is still accepted for backward compatibility.
+```mom
+// Traits
+trait Shape:
+    fn area(self) -> Float
+
+struct Circle:
+    radius: Float
+
+impl Shape for Circle:
+    fn area(self) -> Float:
+        3.14159 * self.radius * self.radius
+
+fn main():
+    let c = Circle { radius: 2.0 }
+    print(c.area())
+```
+
+```mom
+// Actor — state machine with message passing
+enum Msg:
+    Inc
+    Add(Int)
+
+actor Counter:
+    state count: Int
+    receive:
+        Inc    => Counter { count: self.count + 1 }
+        Add(n) => Counter { count: self.count + n }
+
+fn main():
+    let mut c = Counter { count: 0 }
+    c = c.step(Inc)
+    c = c.step(Add(10))
+    print(c.count)   // 11
+```
+
+Both indentation and `{ }` brace style are accepted.
 
 ---
 
@@ -242,9 +325,15 @@ The `std/` directory ships 60+ built-in functions across 14 modules:
 
 ## Status
 
-This repository hosts the **Rust-based bootstrap toolchain** (stage-0).
-The plan ends with mom compiling itself through a native LLVM + custom-codegen
-backend. See [`docs/plan.md`](docs/plan.md) and
+| Stage | Description | Status |
+|-------|-------------|--------|
+| Stage 0 | Rust-based bootstrap compiler — lexer, parser, type checker, borrow checker, interpreter, C codegen | **done** |
+| Stage 1 | mom-in-mom compiler (`compiler/src/main.mom`) — compiles a subset of mom to C | **active** |
+| Stage 2 | Native LLVM / custom codegen backend; full self-hosting | planned |
+
+The compiler currently targets C as an intermediate language and links via `cc`.
+Full self-hosting (the mom compiler written and compiled entirely in mom) is the
+end goal. See [`docs/plan.md`](docs/plan.md) and
 [`docs/roadmap.md`](docs/roadmap.md) for the full roadmap.
 
 ---
