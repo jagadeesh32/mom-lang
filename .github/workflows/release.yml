@@ -1,16 +1,32 @@
+# release.yml — Build and publish mom release binaries.
+#
+# Triggers on v*.*.* tags pushed to GitHub.
+# Produces: .tar.gz / .zip for all tier-1 platforms + .deb + .rpm for Linux.
+# Artifact naming: mom-{version}-{target}.{ext}
+
 name: Release
 
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - 'v[0-9]+.[0-9]+.[0-9]*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.2.0)'
+        required: true
 
-# Cuts a GitHub Release with signed tier-1 binaries when a v*.*.* tag
-# is pushed. The release artifact naming matches `scripts/install.sh`.
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
-  binaries:
-    name: build ${{ matrix.target }}
+  # ── Stage 1: build binaries ────────────────────────────────────────────────
+  build:
+    name: build / ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -18,73 +34,342 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            asset: mom-x86_64-linux
+            asset_name: mom-linux-x86_64
+            use_cross: false
+
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            asset: mom-aarch64-linux
-            cross: true
-          - os: macos-13
-            target: x86_64-apple-darwin
-            asset: mom-x86_64-darwin
-          - os: macos-14
+            asset_name: mom-linux-aarch64
+            use_cross: true
+
+          - os: macos-latest
             target: aarch64-apple-darwin
-            asset: mom-aarch64-darwin
+            asset_name: mom-macos-aarch64
+            use_cross: false
+
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            asset: mom-x86_64-windows
-            exe: .exe
+            asset_name: mom-windows-x86_64
+            use_cross: false
+            exe_ext: .exe
+
           - os: windows-latest
             target: aarch64-pc-windows-msvc
-            asset: mom-aarch64-windows
-            exe: .exe
-            cross: true
+            asset_name: mom-windows-aarch64
+            use_cross: false
+            exe_ext: .exe
+
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      - name: Build (release)
-        run: cargo build --release --target ${{ matrix.target }}
+      - name: Cache Cargo registry + build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-${{ matrix.target }}-
 
-      - name: Package
+      - name: Install cross (Linux ARM only)
+        if: matrix.use_cross == true
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross
+        shell: bash
+
+      - name: Build binary
+        shell: bash
+        run: |
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
+
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Package (Linux / macOS)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
-          stage="$(mktemp -d)"
-          cp "target/${{ matrix.target }}/release/mom${{ matrix.exe || '' }}" "$stage/"
-          cp README.md LICENSE-APACHE 2>/dev/null "$stage/" || true
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cd "$stage" && 7z a "${GITHUB_WORKSPACE}/${{ matrix.asset }}.zip" .
-          else
-            tar -czf "${{ matrix.asset }}.tar.gz" -C "$stage" .
-          fi
+          VERSION="${{ steps.version.outputs.tag }}"
+          ASSET="${{ matrix.asset_name }}"
+          DIST="dist/${ASSET}"
+          mkdir -p "${DIST}"
 
-      - name: Upload
+          # Binary
+          cp "target/${{ matrix.target }}/release/mom" "${DIST}/mom"
+          chmod +x "${DIST}/mom"
+
+          # Runtime files needed for `mom build` and `mom selfhost`
+          cp -r compiler "${DIST}/compiler"
+          cp -r std "${DIST}/std"
+          cp README.md "${DIST}/README.md" 2>/dev/null || true
+
+          # Create tar.gz
+          tar -czf "${ASSET}.tar.gz" -C dist "${ASSET}"
+          echo "Created ${ASSET}.tar.gz"
+
+          # SHA256
+          sha256sum "${ASSET}.tar.gz" >> checksums.txt
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.tag }}"
+          $asset = "${{ matrix.asset_name }}"
+          $dist = "dist\$asset"
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+
+          # Binary
+          Copy-Item "target\${{ matrix.target }}\release\mom.exe" "$dist\mom.exe"
+
+          # Runtime files
+          Copy-Item -Recurse "compiler" "$dist\compiler"
+          Copy-Item -Recurse "std" "$dist\std"
+          if (Test-Path "README.md") { Copy-Item "README.md" "$dist\README.md" }
+
+          # Create zip
+          Compress-Archive -Path "$dist" -DestinationPath "$asset.zip"
+          Write-Host "Created $asset.zip"
+
+          # SHA256
+          $hash = (Get-FileHash "$asset.zip" -Algorithm SHA256).Hash.ToLower()
+          Add-Content "checksums.txt" "$hash  $asset.zip"
+
+      - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset }}
+          name: ${{ matrix.asset_name }}
           path: |
-            ${{ matrix.asset }}.tar.gz
-            ${{ matrix.asset }}.zip
+            ${{ matrix.asset_name }}.tar.gz
+            ${{ matrix.asset_name }}.zip
+          if-no-files-found: error
 
+      - name: Upload checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksum-${{ matrix.asset_name }}
+          path: checksums.txt
+
+  # ── Stage 2: Linux packages (.deb + .rpm) ─────────────────────────────────
+  linux-packages:
+    name: linux packages / ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            asset_name: mom-linux-x86_64
+            deb_arch: amd64
+            rpm_arch: x86_64
+
+          - arch: aarch64
+            asset_name: mom-linux-aarch64
+            deb_arch: arm64
+            rpm_arch: aarch64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+            echo "ver=$(echo '${{ github.event.inputs.tag }}' | sed 's/^v//')" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+            echo "ver=$(echo ${GITHUB_REF_NAME} | sed 's/^v//')" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download binary archive
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: dist/
+
+      - name: Extract binary
+        run: |
+          tar -xzf dist/${{ matrix.asset_name }}.tar.gz -C dist/
+          ls -la dist/${{ matrix.asset_name }}/
+
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ruby ruby-dev build-essential rpm
+          sudo gem install fpm --no-document
+
+      - name: Build .deb package
+        run: |
+          VERSION="${{ steps.version.outputs.ver }}"
+          BINARY="dist/${{ matrix.asset_name }}/mom"
+          COMPILER_DIR="dist/${{ matrix.asset_name }}/compiler"
+          STD_DIR="dist/${{ matrix.asset_name }}/std"
+
+          fpm \
+            --input-type dir \
+            --output-type deb \
+            --name mom \
+            --version "${VERSION}" \
+            --architecture "${{ matrix.deb_arch }}" \
+            --maintainer "Mom Language <mom@example.com>" \
+            --description "Mom — a modern, safe, fast self-hosted systems programming language" \
+            --url "https://github.com/jagadeesh32/mom" \
+            --license "Apache-2.0" \
+            --category "devel" \
+            --depends "gcc" \
+            --package "mom-${{ matrix.arch }}.deb" \
+            "${BINARY}=/usr/bin/mom" \
+            "${COMPILER_DIR}=/usr/lib/mom/compiler" \
+            "${STD_DIR}=/usr/lib/mom/std"
+
+          sha256sum "mom-${{ matrix.arch }}.deb" >> checksums.txt
+          echo "Built mom-${{ matrix.arch }}.deb"
+
+      - name: Build .rpm package
+        run: |
+          VERSION="${{ steps.version.outputs.ver }}"
+          BINARY="dist/${{ matrix.asset_name }}/mom"
+          COMPILER_DIR="dist/${{ matrix.asset_name }}/compiler"
+          STD_DIR="dist/${{ matrix.asset_name }}/std"
+
+          fpm \
+            --input-type dir \
+            --output-type rpm \
+            --name mom \
+            --version "${VERSION}" \
+            --architecture "${{ matrix.rpm_arch }}" \
+            --maintainer "Mom Language <mom@example.com>" \
+            --description "Mom — a modern, safe, fast self-hosted systems programming language" \
+            --url "https://github.com/jagadeesh32/mom" \
+            --license "Apache-2.0" \
+            --category "Development/Languages" \
+            --depends "gcc" \
+            --package "mom-${{ matrix.arch }}.rpm" \
+            "${BINARY}=/usr/bin/mom" \
+            "${COMPILER_DIR}=/usr/lib/mom/compiler" \
+            "${STD_DIR}=/usr/lib/mom/std"
+
+          sha256sum "mom-${{ matrix.arch }}.rpm" >> checksums.txt
+          echo "Built mom-${{ matrix.arch }}.rpm"
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages-${{ matrix.arch }}
+          path: |
+            mom-${{ matrix.arch }}.deb
+            mom-${{ matrix.arch }}.rpm
+            checksums.txt
+
+  # ── Stage 3: Merge checksums ───────────────────────────────────────────────
+  checksums:
+    name: merge checksums
+    runs-on: ubuntu-latest
+    needs: [build, linux-packages]
+    steps:
+      - name: Download all checksum artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: checksum-*
+          path: checksums/
+          merge-multiple: true
+
+      - name: Download package checksums
+        uses: actions/download-artifact@v4
+        with:
+          pattern: linux-packages-*
+          path: pkg-checksums/
+          merge-multiple: true
+
+      - name: Merge all checksums
+        run: |
+          cat checksums/**/* pkg-checksums/**/checksums.txt 2>/dev/null | sort > SHA256SUMS.txt || true
+          find checksums/ -name '*.txt' -exec cat {} \; | sort > SHA256SUMS.txt
+          echo "=== SHA256SUMS.txt ==="
+          cat SHA256SUMS.txt
+
+      - name: Upload combined checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: SHA256SUMS
+          path: SHA256SUMS.txt
+
+  # ── Stage 4: Publish GitHub Release ────────────────────────────────────────
   publish:
     name: publish release
-    needs: binaries
     runs-on: ubuntu-latest
+    needs: [build, linux-packages, checksums]
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download all release artifacts
+        uses: actions/download-artifact@v4
         with:
-          path: dist
+          path: release-dist/
+          merge-multiple: false
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p release-files
+          find release-dist/ -type f \( \
+            -name "*.tar.gz" \
+            -o -name "*.zip" \
+            -o -name "*.deb" \
+            -o -name "*.rpm" \
+            -o -name "SHA256SUMS.txt" \
+          \) -exec cp {} release-files/ \;
+          ls -lh release-files/
+
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          VER="${TAG#v}"
+          # Extract the section for this version from CHANGELOG.md
+          awk "/^## \[?${VER}\]?/,/^## \[?[0-9]/" CHANGELOG.md 2>/dev/null \
+            | head -n -1 > release_notes.md || echo "Release ${TAG}" > release_notes.md
+          echo "Notes extracted."
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dist/**/*.tar.gz
-            dist/**/*.zip
-          body_path: CHANGELOG.md
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "mom ${{ steps.version.outputs.tag }}"
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.tag, '-') }}
+          files: release-files/*
           fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,340 +1,372 @@
 # mom
 
-**mom** is a modern, self-hosted systems programming language designed for
-enterprise-scale software: operating systems, distributed systems, AI
-infrastructure, networking stacks, and high-performance backend services.
+**Mom** is a modern, safe, fast, self-hosted systems programming language.  
+It compiles to native binaries via C, features a borrow checker, and is written in itself.
 
-Source files use the `.mom` extension. The compiler binary is `mom`.
+[![CI](https://github.com/jagadeesh32/mom/actions/workflows/ci.yml/badge.svg)](https://github.com/jagadeesh32/mom/actions/workflows/ci.yml)
+[![Release](https://github.com/jagadeesh32/mom/actions/workflows/release.yml/badge.svg)](https://github.com/jagadeesh32/mom/actions/workflows/release.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE-APACHE)
+[![Version](https://img.shields.io/github/v/release/jagadeesh32/mom)](https://github.com/jagadeesh32/mom/releases/latest)
 
-## Language Features
+```mom
+fn fib(n: Int) -> Int:
+    if n <= 1: n
+    else: fib(n - 1) + fib(n - 2)
 
-**Syntax**
-- Python-style indentation-based blocks (`if`, `fn`, `struct`, etc.) — brace `{ }` style also accepted
-- `let` / `let mut` bindings, immutable by default
-- `if` / `elif` / `else`, `while`, `for x in`, `break`, `continue`
-- `match` — exhaustive pattern matching on literals, enums, and payloads
-- `fn` functions with explicit return types; `async fn` for async functions
-- `pub`, `const`, `defer`, `unsafe`, `comptime`, `region`
-- Attributes: `#[name]` on functions and items
+fn main():
+    for i in 0..10:
+        print(fib(i))
+```
 
-**Type System**
-- Primitive types: `Int`, `Float`, `Bool`, `String`
-- `struct` with named fields and generic parameters
-- `enum` with payload variants (algebraic data types / sum types)
-- `trait` declarations and `impl Trait for Type` dispatch
-- Built-in `Option[T]` and `Result[T, E]`; `?` propagation operator
-- Generic functions `fn foo[T](...)` and generic types
-- List type `[T]` with indexing and iteration
+---
 
-**Memory Safety**
-- Borrow checker enforced at compile time: move semantics, `&` shared borrows, `&mut` exclusive borrows
-- No null pointers — use `Option[T]`
-- `unsafe` escape hatch for low-level code
-- `region` allocations for arena-style memory management
+## Table of Contents
 
-**Concurrency & Actors**
-- `actor` keyword — state machine desugared to struct + step method
-- `spawn` lightweight tasks, `async` / `await`
-- `supervise` for fault-isolated supervision trees
-- Channel-based message passing with `receive`
-
-**C Interoperability**
-- `extern "C" { ... }` blocks for direct C FFI
-- Links against native `.so` / `.a` libraries; no runtime needed
-
-**Operators & Expressions**
-- Arithmetic, comparison, logical (`and` / `or` / `not`)
-- Pipe-forward `|>`, range `..`, borrow `&` / `&mut`
-
-The language goal is **simple to learn, safe by default, fast at runtime,
-fast to compile, and able to compile itself**.
+- [Installation](#installation)
+  - [Linux](#linux)
+  - [macOS](#macos)
+  - [Windows](#windows)
+  - [One-line installer](#one-line-installer)
+  - [Build from source](#build-from-source)
+- [Quick Start](#quick-start)
+- [Language Features](#language-features)
+- [CLI Reference](#cli-reference)
+- [Standard Library](#standard-library)
+- [Repository Layout](#repository-layout)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
 ## Installation
 
-### From release binaries (recommended)
+### Linux
 
-Pre-built binaries for all tier-1 platforms are attached to every
-[GitHub Release](https://github.com/your-org/mom/releases).
+#### Debian / Ubuntu (x86\_64)
 
-#### Linux x86_64
-
-```sh
-curl -L https://github.com/your-org/mom/releases/latest/download/mom-x86_64-linux.tar.gz \
-  | tar -xz -C /usr/local/bin
-chmod +x /usr/local/bin/mom
+```bash
+# Download and install .deb package
+curl -fsSL https://github.com/jagadeesh32/mom/releases/latest/download/mom-x86_64.deb -o mom.deb
+sudo dpkg -i mom.deb
 mom version
 ```
 
-#### Linux ARM64 (aarch64)
+#### Debian / Ubuntu (ARM64 — Raspberry Pi, AWS Graviton, etc.)
 
-```sh
-curl -L https://github.com/your-org/mom/releases/latest/download/mom-aarch64-linux.tar.gz \
-  | tar -xz -C /usr/local/bin
-chmod +x /usr/local/bin/mom
+```bash
+curl -fsSL https://github.com/jagadeesh32/mom/releases/latest/download/mom-aarch64.deb -o mom.deb
+sudo dpkg -i mom.deb
 mom version
 ```
 
-#### macOS ARM (Apple Silicon — M1/M2/M3)
+#### Red Hat / Fedora / CentOS / RHEL (x86\_64)
 
-```sh
-curl -L https://github.com/your-org/mom/releases/latest/download/mom-aarch64-darwin.tar.gz \
-  | tar -xz -C /usr/local/bin
-chmod +x /usr/local/bin/mom
-mom version
+```bash
+# DNF (Fedora / RHEL 8+)
+sudo dnf install https://github.com/jagadeesh32/mom/releases/latest/download/mom-x86_64.rpm
+
+# YUM (CentOS 7 / older RHEL)
+sudo yum install https://github.com/jagadeesh32/mom/releases/latest/download/mom-x86_64.rpm
 ```
 
-#### macOS x86_64 (Intel)
+#### Red Hat / Fedora / CentOS (ARM64)
 
-```sh
-curl -L https://github.com/your-org/mom/releases/latest/download/mom-x86_64-darwin.tar.gz \
-  | tar -xz -C /usr/local/bin
-chmod +x /usr/local/bin/mom
-mom version
+```bash
+sudo dnf install https://github.com/jagadeesh32/mom/releases/latest/download/mom-aarch64.rpm
 ```
 
-#### Windows x86_64
+#### Universal tarball (any Linux distro)
 
-Download `mom-x86_64-windows.zip` from the
-[latest release](https://github.com/your-org/mom/releases/latest),
-extract, and place `mom.exe` somewhere on your `PATH`.
+```bash
+# x86_64
+curl -fsSL https://github.com/jagadeesh32/mom/releases/latest/download/mom-linux-x86_64.tar.gz | \
+  tar -xzf - --strip-components=1 -C ~/.local/
 
-```powershell
-# Using PowerShell
-Expand-Archive mom-x86_64-windows.zip -DestinationPath "$env:LOCALAPPDATA\mom"
-$env:PATH += ";$env:LOCALAPPDATA\mom"
-mom version
+# ARM64
+curl -fsSL https://github.com/jagadeesh32/mom/releases/latest/download/mom-linux-aarch64.tar.gz | \
+  tar -xzf - --strip-components=1 -C ~/.local/
+
+# Add to PATH (add this to ~/.bashrc or ~/.zshrc)
+export PATH="$HOME/.local/bin:$PATH"
 ```
-
-#### Windows ARM64 (aarch64)
-
-Download `mom-aarch64-windows.zip` from the
-[latest release](https://github.com/your-org/mom/releases/latest),
-extract, and place `mom.exe` somewhere on your `PATH`.
-
-```powershell
-Expand-Archive mom-aarch64-windows.zip -DestinationPath "$env:LOCALAPPDATA\mom"
-$env:PATH += ";$env:LOCALAPPDATA\mom"
-mom version
-```
-
-### One-line installer (Linux / macOS)
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/your-org/mom/main/scripts/install.sh | bash
-```
-
-The installer detects your platform triple, downloads the matching binary,
-and places it in `~/.local/bin`.
 
 ---
 
-## Building from source
+### macOS
 
-The stage-0 compiler is written in Rust. You need **Rust 1.78+** and `cargo`.
+#### Apple Silicon (M1 / M2 / M3 / M4)
 
-```sh
-git clone https://github.com/your-org/mom.git
+```bash
+curl -fsSL https://github.com/jagadeesh32/mom/releases/latest/download/mom-macos-aarch64.tar.gz | \
+  tar -xzf - --strip-components=1 -C ~/.local/
+export PATH="$HOME/.local/bin:$PATH"
+mom version
+```
+
+> **Note:** Intel Mac (x86\_64) is not a packaged target.  
+> Use Rosetta 2 (`arch -x86_64 ...`) or build from source.
+
+---
+
+### Windows
+
+#### x86\_64 (Intel / AMD — most PCs)
+
+```powershell
+# PowerShell — run as regular user (no admin needed)
+Invoke-WebRequest -Uri "https://github.com/jagadeesh32/mom/releases/latest/download/mom-windows-x86_64.zip" `
+  -OutFile mom.zip
+Expand-Archive mom.zip -DestinationPath "$env:LOCALAPPDATA\mom" -Force
+
+# Add to PATH (run once)
+$binDir = "$env:LOCALAPPDATA\mom\mom-windows-x86_64"
+[Environment]::SetEnvironmentVariable("PATH", "$binDir;$([Environment]::GetEnvironmentVariable('PATH','User'))", "User")
+```
+
+Open a new terminal and test:
+```cmd
+mom version
+```
+
+#### ARM64 (Snapdragon X / Copilot+ PCs)
+
+```powershell
+Invoke-WebRequest -Uri "https://github.com/jagadeesh32/mom/releases/latest/download/mom-windows-aarch64.zip" `
+  -OutFile mom.zip
+Expand-Archive mom.zip -DestinationPath "$env:LOCALAPPDATA\mom" -Force
+
+$binDir = "$env:LOCALAPPDATA\mom\mom-windows-aarch64"
+[Environment]::SetEnvironmentVariable("PATH", "$binDir;$([Environment]::GetEnvironmentVariable('PATH','User'))", "User")
+```
+
+---
+
+### One-line installer
+
+**Linux / macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/jagadeesh32/mom/main/scripts/install.sh | bash
+```
+
+Install a specific version:
+```bash
+curl -fsSL https://raw.githubusercontent.com/jagadeesh32/mom/main/scripts/install.sh | bash -s -- --version v0.2.0
+```
+
+Install to a custom prefix:
+```bash
+curl -fsSL https://raw.githubusercontent.com/jagadeesh32/mom/main/scripts/install.sh | bash -s -- --prefix /usr/local
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/jagadeesh32/mom/main/scripts/install.ps1 | iex
+```
+
+---
+
+### Build from source
+
+Requires **Rust 1.78+** and `cargo`.
+
+```bash
+git clone https://github.com/jagadeesh32/mom.git
 cd mom
 cargo build --release
-# Binary is at ./target/release/mom
 ./target/release/mom version
 ```
 
-To cross-compile for a different target (requires
-[cross](https://github.com/cross-rs/cross)):
+The compiled binary is at `target/release/mom` (or `target\release\mom.exe` on Windows).
 
-```sh
-cross build --release --target aarch64-unknown-linux-gnu
-cross build --release --target aarch64-pc-windows-msvc
-```
+**Verify self-hosting:**
+```bash
+# Compile the mom-in-mom compiler with itself
+./target/release/mom selfhost compiler/src/main.mom -o mom-stage1
 
-To exercise the stage-1 self-hosted compiler after building:
-
-```sh
-./target/release/mom selfhost compiler/src/main.mom -o mom-stage1 --run
+# Run an example with the self-hosted binary
+MOM_INPUT=examples/hello.mom MOM_OUTPUT=/tmp/hello.c ./mom-stage1
+gcc -std=c99 -I compiler compiler/runtime.c /tmp/hello.c -o hello
+./hello
 ```
 
 ---
 
 ## Quick Start
 
-Create `hello.mom`:
+### Hello World
 
 ```mom
 fn main():
-    println("Hello, mom!")
-    println("Version 0.2.0")
+    print("Hello, world!")
 ```
 
-Run it:
-
-```sh
+```bash
 mom run hello.mom
 ```
 
-### More examples
+### Fibonacci
 
 ```mom
-// Structs and methods
+fn fib(n: Int) -> Int:
+    if n <= 1: n
+    else: fib(n - 1) + fib(n - 2)
+
+fn main():
+    print(fib(10))   // 55
+```
+
+### Structs and methods
+
+```mom
 struct Point:
     x: Int
     y: Int
 
 impl Point:
-    fn shift(self, dx: Int, dy: Int) -> Point:
-        Point { x: self.x + dx, y: self.y + dy }
+    fn distance(self, other: Point) -> Int:
+        let dx = self.x - other.x
+        let dy = self.y - other.y
+        dx * dx + dy * dy
 
 fn main():
-    let p = Point { x: 3, y: 4 }
-    let q = p.shift(1, 1)
-    print(q.x)   // 4
+    let a = Point { x: 0, y: 0 }
+    let b = Point { x: 3, y: 4 }
+    print(a.distance(b))   // 25
 ```
 
-```mom
-// Enums and exhaustive pattern matching
-enum Shape:
-    Circle(Float)
-    Rect(Float, Float)
-
-fn area(s: Shape) -> Float:
-    match s:
-        Circle(r)    => 3.14159 * r * r
-        Rect(w, h)   => w * h
-
-fn main():
-    print(area(Circle(2.0)))   // 12.566...
-    print(area(Rect(3.0, 4.0)))  // 12.0
-```
+### Error handling
 
 ```mom
-// Option and Result with ? propagation
-fn parse(v: Int) -> Result[Int, String]:
-    if v < 0 { Err("negative") } else { Ok(v * 2) }
-
-fn doubled_plus_one(v: Int) -> Result[Int, String]:
-    let inner = parse(v)?
-    Ok(inner + 1)
+fn divide(a: Int, b: Int) -> Result[Int, String]:
+    if b == 0: Err("division by zero")
+    else:      Ok(a / b)
 
 fn main():
-    match doubled_plus_one(5):
-        Ok(n)  => print(n)     // 11
+    match divide(10, 2):
+        Ok(v)  => print(v)      // 5
         Err(e) => print(e)
+
+    match divide(10, 0):
+        Ok(v)  => print(v)
+        Err(e) => print(e)      // division by zero
 ```
+
+### Pattern matching
 
 ```mom
-// Traits
-trait Shape:
-    fn area(self) -> Float
-
-struct Circle:
-    radius: Float
-
-impl Shape for Circle:
-    fn area(self) -> Float:
-        3.14159 * self.radius * self.radius
+fn classify(n: Int) -> String:
+    match n:
+        0       => "zero"
+        1       => "one"
+        _       => "many"
 
 fn main():
-    let c = Circle { radius: 2.0 }
-    print(c.area())
+    print(classify(0))    // zero
+    print(classify(1))    // one
+    print(classify(42))   // many
 ```
 
-```mom
-// Actor — state machine with message passing
-enum Msg:
-    Inc
-    Add(Int)
+### Compile to a native binary
 
-actor Counter:
-    state count: Int
-    receive:
-        Inc    => Counter { count: self.count + 1 }
-        Add(n) => Counter { count: self.count + n }
-
-fn main():
-    let mut c = Counter { count: 0 }
-    c = c.step(Inc)
-    c = c.step(Add(10))
-    print(c.count)   // 11
+```bash
+mom build fib.mom -o fib
+./fib
 ```
-
-Both indentation and `{ }` brace style are accepted.
 
 ---
 
-## CLI Commands
+## Language Features
 
-```sh
+| Feature | Status |
+|---|---|
+| Functions, recursion | ✅ |
+| `let` / `let mut` bindings | ✅ |
+| `Int`, `Bool`, `String`, `Float` | ✅ |
+| Lists `[T]`, indexing, `for x in list` | ✅ |
+| `if/else` expressions | ✅ |
+| `while`, `for i in lo..hi` | ✅ |
+| Structs + `impl` blocks | ✅ |
+| Enums + pattern matching | ✅ |
+| `Option[T]` / `Result[T,E]` + `?` | ✅ |
+| Traits + `impl Trait for Type` | ✅ |
+| Channels + actors | ✅ |
+| `async fn` / `await` (synchronous) | ✅ |
+| Generics (dynamic dispatch) | ✅ |
+| Modules + imports | ✅ |
+| Pipeline operator `\|>` | ✅ |
+| Borrow checker (stage-0) | ✅ |
+| Native codegen via C | ✅ |
+| Self-hosted compiler | ✅ |
+| LSP server | ✅ |
+| Formatter | ✅ |
+| Linter | ✅ |
+| Package manager (`mom pkg`) | ✅ |
+| Multi-threaded async runtime | 🔜 |
+| LLVM backend | 🔜 |
+| Full generics monomorphization | 🔜 |
+
+---
+
+## CLI Reference
+
+```bash
 # Run and compile
-mom run       <file.mom>                  # interpret and run
-mom build     <file.mom> [-o OUT]         # compile to native binary
-mom build-run <file.mom>                  # compile then execute
-mom emit-c    <file.mom>                  # show generated C source
+mom run       <file.mom>              # interpret and run
+mom build     <file.mom> [-o OUT]     # compile to native binary
+mom build-run <file.mom>              # compile then execute
+mom emit-c    <file.mom>              # show generated C source
 
 # Inspection
-mom tokens    <file.mom>                  # show token stream
-mom ast       <file.mom>                  # print parsed AST
-mom check     <file.mom>                  # type-check + borrow-check
+mom tokens    <file.mom>              # show token stream
+mom ast       <file.mom>              # print parsed AST
+mom check     <file.mom>              # type-check + borrow-check
 
-# Developer tooling
-mom fmt       <file.mom> [--check]        # format in place
-mom lint      <file.mom>                  # apply mom.toml [lints] config
-mom doc       <file.mom>                  # emit Markdown API reference
-mom test      [dir]                       # discover and run *.mom tests
-mom new       <dir>                       # scaffold a new project
-mom init      [dir]                       # scaffold in existing directory
-mom pkg       list|add|remove|audit       # manage dependencies
-mom lsp                                   # LSP server on stdio
-mom bench     [file.mom]                  # benchmark #[bench] functions
-mom prof      [file.mom]                  # profile with call-trace
-mom dbg       [file.mom]                  # DAP-over-stdio debugger
+# Tooling
+mom fmt       <file.mom> [--check]    # format in place
+mom lint      <file.mom>              # lint with mom.toml rules
+mom doc       <file.mom>              # emit Markdown API docs
+mom test      [dir]                   # discover and run *.mom tests
+mom bench     [dir]                   # run benchmarks
+mom prof      <file.mom>              # profile with call-trace
 
-# Self-host bootstrap
-mom selfhost  <file.mom> [-o OUT] [--run] # drive stage-1 (mom-in-mom)
-                                          # compiler end-to-end and link
+# Project management
+mom new       <dir>                   # scaffold new project
+mom init      [dir]                   # scaffold in existing directory
+mom pkg       list|add|remove|audit   # manage dependencies
 
-mom version                               # print compiler version
-mom help                                  # full help
+# Language server
+mom lsp                               # LSP server on stdio
+mom dbg                               # DAP debugger on stdio
+
+# Self-hosted compiler
+mom selfhost  <file.mom> [-o OUT]     # compile via stage-1 (mom-in-mom)
+
+mom version                           # print version
+mom help                              # full help
 ```
 
 ---
 
 ## Standard Library
 
-The `std/` directory ships 60+ built-in functions across 14 modules:
+The standard library is in the `std/` directory:
 
-| Module         | Highlights                                              |
-|----------------|---------------------------------------------------------|
-| `std/core`     | identity, min, max, clamp, abs, sign, Option/Result     |
-| `std/fmt`      | repeat, pad_left, pad_right, join, bracket              |
-| `std/io`       | LineBuffer, write, writeln, flush                       |
-| `std/math`     | gcd, lcm, pow_int, factorial, fib, LCG RNG              |
-| `std/test`     | assert_eq_int, assert_true, assert_false, TestStats      |
-| `std/async`    | compute, join_all_int, yield_now                        |
-| `std/actor`    | channel-driven mailbox + run loop                       |
-| `std/net`      | Address, Request, Response, route dispatch              |
-| `std/serde`    | JSON-ish encoders (bool/int/string/list/key-value)      |
-| `std/crypto`   | Adler-32, polynomial rolling hash, hex encoders         |
-| `std/log`      | Level enum, Logger with rank-gated emit                 |
-| `std/sync`     | Mutex/Atomic/Once surface                               |
-| `std/os`       | env, sleep, process-info wrappers                       |
-| `std/alloc`    | Box, Rc, Arc, region demo                               |
-
----
-
-## Status
-
-| Stage | Description | Status |
-|-------|-------------|--------|
-| Stage 0 | Rust-based bootstrap compiler — lexer, parser, type checker, borrow checker, interpreter, C codegen | **done** |
-| Stage 1 | mom-in-mom compiler (`compiler/src/main.mom`) — compiles a subset of mom to C | **active** |
-| Stage 2 | Native LLVM / custom codegen backend; full self-hosting | planned |
-
-The compiler currently targets C as an intermediate language and links via `cc`.
-Full self-hosting (the mom compiler written and compiled entirely in mom) is the
-end goal. See [`docs/plan.md`](docs/plan.md) and
-[`docs/roadmap.md`](docs/roadmap.md) for the full roadmap.
+| Module | Description |
+|---|---|
+| `std/core.mom` | Core types and operations |
+| `std/io.mom` | File and stream I/O |
+| `std/fmt.mom` | Formatting utilities |
+| `std/math.mom` | Math functions |
+| `std/net.mom` | Network primitives |
+| `std/os.mom` | OS interface |
+| `std/sync.mom` | Synchronization primitives |
+| `std/async.mom` | Async utilities |
+| `std/actor.mom` | Actor pattern |
+| `std/alloc.mom` | Memory allocation |
+| `std/crypto.mom` | Cryptographic primitives |
+| `std/log.mom` | Structured logging |
+| `std/serde.mom` | Serialization/deserialization |
+| `std/test.mom` | Test harness |
 
 ---
 
@@ -342,43 +374,47 @@ end goal. See [`docs/plan.md`](docs/plan.md) and
 
 ```
 .
-├── Cargo.toml              # Rust workspace
-├── src/                    # Rust sources: lexer, parser, AST, types,
-│                           # borrow checker, interpreter, codegen, subcommands
-├── runtime/                # native runtime support (runtime.c)
-├── compiler/               # stage-1 mom-in-mom compiler + examples
-├── std/                    # Phase 6 standard library (.mom files)
-├── tests/                  # Rust acceptance suites
-├── examples/               # sample .mom programs
-├── docs/                   # design docs, grammar, plan, roadmap
-├── rfcs/                   # RFC template + accepted proposals
-├── scripts/                # install.sh and ops scripts
-└── .github/workflows/      # CI matrix + release pipeline
+├── Cargo.toml              # Rust workspace (stage-0 compiler)
+├── src/                    # Stage-0: lexer, parser, AST, types,
+│                           #   borrow checker, interpreter, C-codegen, CLI
+├── compiler/               # Stage-1: mom-in-mom self-hosted compiler
+│   ├── src/main.mom        #   The compiler written in mom
+│   ├── runtime.c           #   C runtime library
+│   ├── runtime.h
+│   └── examples/           #   Stage-1 test programs
+├── std/                    # Standard library (.mom files)
+├── tests/                  # Rust integration test suites
+├── examples/               # Sample .mom programs
+├── docs/                   # Design docs, grammar, roadmap
+├── rfcs/                   # Accepted proposals
+├── scripts/                # install.sh, install.ps1
+└── .github/workflows/      # CI + release pipeline
 ```
 
 ---
 
-## Documentation Index
+## Contributing
 
-| Topic                              | File                                          |
-|------------------------------------|-----------------------------------------------|
-| Language philosophy and goals      | [docs/philosophy.md](docs/philosophy.md)      |
-| Surface language design            | [docs/design.md](docs/design.md)              |
-| Formal grammar (EBNF)              | [docs/grammar.ebnf](docs/grammar.ebnf)        |
-| Type system                        | [docs/types.md](docs/types.md)                |
-| Memory model & safety              | [docs/memory.md](docs/memory.md)              |
-| Concurrency, actors, supervision   | [docs/concurrency.md](docs/concurrency.md)    |
-| C and C++ interoperability         | [docs/interop.md](docs/interop.md)            |
-| Build system & package manager     | [docs/build_system.md](docs/build_system.md)  |
-| Standard library plan              | [docs/stdlib.md](docs/stdlib.md)              |
-| Tooling: fmt, lint, LSP, debugger  | [docs/tooling.md](docs/tooling.md)            |
-| Compiler architecture              | [docs/compiler.md](docs/compiler.md)          |
-| Bootstrapping & self-hosting plan  | [docs/bootstrap.md](docs/bootstrap.md)        |
-| Engineering roadmap                | [docs/roadmap.md](docs/roadmap.md)            |
-| Risks & mitigations                | [docs/risks.md](docs/risks.md)                |
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
+
+```bash
+git clone https://github.com/jagadeesh32/mom.git
+cd mom
+cargo build
+cargo test
+```
+
+To run the self-hosting fixed-point test:
+```bash
+bash compiler/self_host_test.sh
+```
 
 ---
 
 ## License
 
-Apache-2.0.
+Licensed under the [Apache License, Version 2.0](LICENSE-APACHE).
+
+---
+
+*Mom is an independent open-source project.*
