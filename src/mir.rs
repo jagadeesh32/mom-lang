@@ -13,8 +13,8 @@
 //! - Locals are addressed by `LocalId`.
 //! - SSA form is established lazily by the dominance + phi pass.
 
-use crate::hir::HirType;
 use crate::diagnostic::Span;
+use crate::hir::HirType;
 
 pub type LocalId = u32;
 pub type BlockId = u32;
@@ -50,7 +50,9 @@ pub enum MirStmt {
         rvalue: MirRvalue,
     },
     /// Run a side-effecting expression for its effect alone.
-    Discard { value: MirRvalue },
+    Discard {
+        value: MirRvalue,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -104,8 +106,12 @@ pub enum MirUnaryOp {
 
 #[derive(Debug, Clone)]
 pub enum MirTerminator {
-    Return { value: Option<LocalId> },
-    Goto { target: BlockId },
+    Return {
+        value: Option<LocalId>,
+    },
+    Goto {
+        target: BlockId,
+    },
     Branch {
         condition: LocalId,
         then_block: BlockId,

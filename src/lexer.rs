@@ -78,10 +78,7 @@ impl Lexer {
                         tokens.push(Token::new(TokenKind::Dedent, indent_span.clone()));
                     }
                     if self.indent_stack.last().copied().unwrap_or(0) != indent {
-                        return Err(Diagnostic::new(
-                            "inconsistent indentation",
-                            indent_span,
-                        ));
+                        return Err(Diagnostic::new("inconsistent indentation", indent_span));
                     }
                 }
                 // Same level → no INDENT/DEDENT needed.
@@ -105,9 +102,7 @@ impl Lexer {
                     let last = tokens.last().map(|t| &t.kind);
                     if !matches!(
                         last,
-                        Some(TokenKind::Newline)
-                            | Some(TokenKind::Indent)
-                            | None
+                        Some(TokenKind::Newline) | Some(TokenKind::Indent) | None
                     ) {
                         tokens.push(Token::new(TokenKind::Newline, nl_span));
                     }
@@ -276,10 +271,7 @@ impl Lexer {
         let last = tokens.last().map(|t| &t.kind);
         if !matches!(
             last,
-            Some(TokenKind::Newline)
-                | Some(TokenKind::Indent)
-                | Some(TokenKind::Dedent)
-                | None
+            Some(TokenKind::Newline) | Some(TokenKind::Indent) | Some(TokenKind::Dedent) | None
         ) {
             tokens.push(Token::new(TokenKind::Newline, final_span.clone()));
         }
@@ -299,9 +291,15 @@ impl Lexer {
         let mut count = 0usize;
         loop {
             match self.peek() {
-                Some(' ')  => { count += 1; self.advance(); }
-                Some('\t') => { count += 4; self.advance(); }
-                _          => break,
+                Some(' ') => {
+                    count += 1;
+                    self.advance();
+                }
+                Some('\t') => {
+                    count += 4;
+                    self.advance();
+                }
+                _ => break,
             }
         }
         count
@@ -328,7 +326,7 @@ impl Lexer {
         }
         match Keyword::from_ident(&ident) {
             Some(keyword) => TokenKind::Keyword(keyword),
-            None          => TokenKind::Ident(ident),
+            None => TokenKind::Ident(ident),
         }
     }
 
@@ -382,11 +380,11 @@ impl Lexer {
             if ch == '\\' {
                 self.advance();
                 let escaped = match self.peek() {
-                    Some('n')  => '\n',
-                    Some('r')  => '\r',
-                    Some('t')  => '\t',
-                    Some('0')  => '\0',
-                    Some('"')  => '"',
+                    Some('n') => '\n',
+                    Some('r') => '\r',
+                    Some('t') => '\t',
+                    Some('0') => '\0',
+                    Some('"') => '"',
                     Some('\\') => '\\',
                     Some(other) => {
                         return Err(Diagnostic::new(

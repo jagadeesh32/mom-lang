@@ -55,11 +55,13 @@ impl Manifest {
             if let Some(rest) = line.strip_prefix('[') {
                 let name = rest
                     .strip_suffix(']')
-                    .ok_or_else(|| Diagnostic::at_start(format!(
-                        "{}: unterminated section header on line {}",
-                        path.display(),
-                        lineno + 1
-                    )))?
+                    .ok_or_else(|| {
+                        Diagnostic::at_start(format!(
+                            "{}: unterminated section header on line {}",
+                            path.display(),
+                            lineno + 1
+                        ))
+                    })?
                     .trim()
                     .to_string();
                 if !sections.contains_key(&name) {
@@ -165,10 +167,7 @@ impl Manifest {
 
     pub fn save(&self) -> LangResult<()> {
         fs::write(&self.path, self.render()).map_err(|err| {
-            Diagnostic::at_start(format!(
-                "failed to write '{}': {err}",
-                self.path.display()
-            ))
+            Diagnostic::at_start(format!("failed to write '{}': {err}", self.path.display()))
         })
     }
 }

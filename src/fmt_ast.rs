@@ -304,7 +304,13 @@ impl Printer {
 
     fn emit_stmt(&mut self, stmt: &Stmt, depth: usize) {
         match stmt {
-            Stmt::Let { name, ty, mutable, value, .. } => {
+            Stmt::Let {
+                name,
+                ty,
+                mutable,
+                value,
+                ..
+            } => {
                 self.indent(depth);
                 self.out.push_str("let ");
                 if *mutable {
@@ -355,13 +361,17 @@ impl Printer {
                 }
                 self.out.push('\n');
             }
-            Stmt::While { condition, body, .. } => {
+            Stmt::While {
+                condition, body, ..
+            } => {
                 self.indent(depth);
                 self.out.push_str("while ");
                 self.out.push_str(&expr_inline(condition));
                 self.emit_block_after_header(body, depth);
             }
-            Stmt::For { name, iter, body, .. } => {
+            Stmt::For {
+                name, iter, body, ..
+            } => {
                 self.indent(depth);
                 self.out.push_str("for ");
                 self.out.push_str(name);
@@ -444,7 +454,13 @@ fn expr_inline(expr: &Expr) -> String {
     match expr {
         Expr::Int(value, _) => value.to_string(),
         Expr::Float(value, _) => format!("{value:?}"),
-        Expr::Bool(value, _) => if *value { "true".to_string() } else { "false".to_string() },
+        Expr::Bool(value, _) => {
+            if *value {
+                "true".to_string()
+            } else {
+                "false".to_string()
+            }
+        }
         Expr::String(value, _) => format!("\"{}\"", escape_string(value)),
         Expr::Unit(_) => "()".to_string(),
         Expr::Ident(name, _) => name.clone(),
@@ -463,7 +479,9 @@ fn expr_inline(expr: &Expr) -> String {
             };
             format!("{sym}{}", paren_unary(expr))
         }
-        Expr::Binary { left, op, right, .. } => {
+        Expr::Binary {
+            left, op, right, ..
+        } => {
             format!(
                 "{} {} {}",
                 paren_binary(left, *op, true),
@@ -478,7 +496,9 @@ fn expr_inline(expr: &Expr) -> String {
             let parts: Vec<String> = args.iter().map(expr_inline).collect();
             format!("{}({})", expr_inline(callee), parts.join(", "))
         }
-        Expr::MethodCall { target, name, args, .. } => {
+        Expr::MethodCall {
+            target, name, args, ..
+        } => {
             let parts: Vec<String> = args.iter().map(expr_inline).collect();
             format!("{}.{}({})", expr_inline(target), name, parts.join(", "))
         }
@@ -499,15 +519,26 @@ fn expr_inline(expr: &Expr) -> String {
                 format!("{name} {{ {} }}", parts.join(", "))
             }
         }
-        Expr::If { condition, then_branch, else_branch, .. } => {
-            let mut out = format!("if {} {}", expr_inline(condition), block_inline(then_branch));
+        Expr::If {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            let mut out = format!(
+                "if {} {}",
+                expr_inline(condition),
+                block_inline(then_branch)
+            );
             if let Some(else_b) = else_branch {
                 out.push_str(" else ");
                 out.push_str(&block_inline(else_b));
             }
             out
         }
-        Expr::Match { scrutinee, arms, .. } => {
+        Expr::Match {
+            scrutinee, arms, ..
+        } => {
             let mut out = format!("match {} {{ ", expr_inline(scrutinee));
             let parts: Vec<String> = arms
                 .iter()
@@ -517,7 +548,12 @@ fn expr_inline(expr: &Expr) -> String {
             out.push_str(" }");
             out
         }
-        Expr::Lambda { params, return_type, body, .. } => {
+        Expr::Lambda {
+            params,
+            return_type,
+            body,
+            ..
+        } => {
             let header = if params.is_empty() {
                 "fn()".to_string()
             } else {
@@ -548,7 +584,8 @@ fn expr_inline(expr: &Expr) -> String {
         }
         Expr::Block(block) => block_inline(block),
         Expr::Dict(pairs, _) => {
-            let entries: Vec<String> = pairs.iter()
+            let entries: Vec<String> = pairs
+                .iter()
                 .map(|(k, v)| format!("{}: {}", expr_inline(k), expr_inline(v)))
                 .collect();
             format!("{{{}}}", entries.join(", "))
@@ -577,7 +614,13 @@ fn pattern_inline(pattern: &Pattern) -> String {
         Pattern::Ident(name, _) => name.clone(),
         Pattern::Int(v, _) => v.to_string(),
         Pattern::Float(v, _) => format!("{v:?}"),
-        Pattern::Bool(v, _) => if *v { "true".to_string() } else { "false".to_string() },
+        Pattern::Bool(v, _) => {
+            if *v {
+                "true".to_string()
+            } else {
+                "false".to_string()
+            }
+        }
         Pattern::String(v, _) => format!("\"{}\"", escape_string(v)),
         Pattern::Unit(_) => "()".to_string(),
         Pattern::Variant { name, payload, .. } => {
@@ -597,7 +640,12 @@ fn block_inline(block: &Block) -> String {
     }
     // Tail-expression-only block stays one line.
     if block.statements.len() == 1 {
-        if let Stmt::Expr { expr, has_semicolon: false, .. } = &block.statements[0] {
+        if let Stmt::Expr {
+            expr,
+            has_semicolon: false,
+            ..
+        } = &block.statements[0]
+        {
             return format!("{{ {} }}", expr_inline(expr));
         }
     }
@@ -606,7 +654,13 @@ fn block_inline(block: &Block) -> String {
         // 1-level indent inside an inline block — caller is responsible
         // for any outer indent. We use 4 spaces consistently.
         match stmt {
-            Stmt::Let { name, ty, mutable, value, .. } => {
+            Stmt::Let {
+                name,
+                ty,
+                mutable,
+                value,
+                ..
+            } => {
                 out.push_str("    let ");
                 if *mutable {
                     out.push_str("mut ");

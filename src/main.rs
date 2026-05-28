@@ -65,9 +65,9 @@ fn run_cli() -> LangResult<()> {
             run_build(args, true)?;
         }
         "emit-c" => {
-            let source_path = args.next().ok_or_else(|| {
-                Diagnostic::at_start("expected a source file path for 'emit-c'")
-            })?;
+            let source_path = args
+                .next()
+                .ok_or_else(|| Diagnostic::at_start("expected a source file path for 'emit-c'"))?;
             let source = fs::read_to_string(&source_path).map_err(|err| {
                 Diagnostic::at_start(format!("failed to read '{source_path}': {err}"))
             })?;
@@ -84,9 +84,9 @@ fn run_cli() -> LangResult<()> {
         "new" => run_new(args)?,
         "init" => run_init(args)?,
         "pkg" => run_pkg(args)?,
-        "lsp" => mom::lsp::run().map_err(|err| {
-            Diagnostic::at_start(format!("lsp i/o error: {err}"))
-        })?,
+        "lsp" => {
+            mom::lsp::run().map_err(|err| Diagnostic::at_start(format!("lsp i/o error: {err}")))?
+        }
         "dbg" => run_dbg(args)?,
         "prof" => run_prof(args)?,
         "selfhost" => run_selfhost(args)?,
@@ -112,9 +112,10 @@ fn run_build<I: Iterator<Item = String>>(mut args: I, execute: bool) -> LangResu
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-o" | "--output" => {
-                output_path = Some(PathBuf::from(args.next().ok_or_else(|| {
-                    Diagnostic::at_start("expected a path after '-o'")
-                })?));
+                output_path =
+                    Some(PathBuf::from(args.next().ok_or_else(|| {
+                        Diagnostic::at_start("expected a path after '-o'")
+                    })?));
             }
             "--release" | "-O" => {
                 optimize = true;
@@ -135,8 +136,8 @@ fn run_build<I: Iterator<Item = String>>(mut args: I, execute: bool) -> LangResu
         }
     }
 
-    let source_path = source_path
-        .ok_or_else(|| Diagnostic::at_start("expected a source file path"))?;
+    let source_path =
+        source_path.ok_or_else(|| Diagnostic::at_start("expected a source file path"))?;
     let default_output = derive_output_path(&source_path);
     let output_path = output_path.unwrap_or(default_output);
 
@@ -172,9 +173,7 @@ fn run_fmt<I: Iterator<Item = String>>(mut args: I) -> LangResult<()> {
         match arg.as_str() {
             "--check" => check = true,
             other if other.starts_with('-') => {
-                return Err(Diagnostic::at_start(format!(
-                    "unknown fmt flag '{other}'"
-                )));
+                return Err(Diagnostic::at_start(format!("unknown fmt flag '{other}'")));
             }
             other => paths.push(PathBuf::from(other)),
         }
@@ -200,10 +199,7 @@ fn run_fmt<I: Iterator<Item = String>>(mut args: I) -> LangResult<()> {
             continue;
         }
         fs::write(&path, formatted).map_err(|err| {
-            Diagnostic::at_start(format!(
-                "failed to write '{}': {err}",
-                path.display()
-            ))
+            Diagnostic::at_start(format!("failed to write '{}': {err}", path.display()))
         })?;
         eprintln!("formatted {}", path.display());
     }
@@ -222,9 +218,8 @@ fn run_lint<I: Iterator<Item = String>>(mut args: I) -> LangResult<()> {
     let path = args
         .next()
         .ok_or_else(|| Diagnostic::at_start("expected a source file path for 'lint'"))?;
-    let source = fs::read_to_string(&path).map_err(|err| {
-        Diagnostic::at_start(format!("failed to read '{path}': {err}"))
-    })?;
+    let source = fs::read_to_string(&path)
+        .map_err(|err| Diagnostic::at_start(format!("failed to read '{path}': {err}")))?;
     let program = mom::parse_source(&source)?;
 
     let config = match Manifest::find(Path::new(&path)) {
@@ -268,9 +263,8 @@ fn run_doc<I: Iterator<Item = String>>(mut args: I) -> LangResult<()> {
     let path = args
         .next()
         .ok_or_else(|| Diagnostic::at_start("expected a source file path for 'doc'"))?;
-    let source = fs::read_to_string(&path).map_err(|err| {
-        Diagnostic::at_start(format!("failed to read '{path}': {err}"))
-    })?;
+    let source = fs::read_to_string(&path)
+        .map_err(|err| Diagnostic::at_start(format!("failed to read '{path}': {err}")))?;
     let program = mom::parse_source(&source)?;
     let crate_name = Path::new(&path)
         .file_stem()
@@ -322,20 +316,20 @@ fn run_bench<I: Iterator<Item = String>>(mut args: I) -> LangResult<()> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--iter" | "--iterations" => {
-                let value = args.next().ok_or_else(|| {
-                    Diagnostic::at_start("expected a number after '--iter'")
-                })?;
+                let value = args
+                    .next()
+                    .ok_or_else(|| Diagnostic::at_start("expected a number after '--iter'"))?;
                 options.iterations = value.parse::<usize>().map_err(|_| {
                     Diagnostic::at_start(format!("invalid iteration count '{value}'"))
                 })?;
             }
             "--warmup" => {
-                let value = args.next().ok_or_else(|| {
-                    Diagnostic::at_start("expected a number after '--warmup'")
-                })?;
-                options.warmup = value.parse::<usize>().map_err(|_| {
-                    Diagnostic::at_start(format!("invalid warmup count '{value}'"))
-                })?;
+                let value = args
+                    .next()
+                    .ok_or_else(|| Diagnostic::at_start("expected a number after '--warmup'"))?;
+                options.warmup = value
+                    .parse::<usize>()
+                    .map_err(|_| Diagnostic::at_start(format!("invalid warmup count '{value}'")))?;
             }
             "--json" => options.json = true,
             other if other.starts_with('-') => {
@@ -407,9 +401,9 @@ fn run_init<I: Iterator<Item = String>>(mut args: I) -> LangResult<()> {
 }
 
 fn run_pkg<I: Iterator<Item = String>>(mut args: I) -> LangResult<()> {
-    let action = args
-        .next()
-        .ok_or_else(|| Diagnostic::at_start("expected a 'pkg' subcommand: list/add/remove/audit"))?;
+    let action = args.next().ok_or_else(|| {
+        Diagnostic::at_start("expected a 'pkg' subcommand: list/add/remove/audit")
+    })?;
     let manifest_path = Manifest::find(Path::new(".")).ok_or_else(|| {
         Diagnostic::at_start("no mom.toml found in the current directory or any parent")
     })?;
@@ -467,9 +461,7 @@ fn run_pkg<I: Iterator<Item = String>>(mut args: I) -> LangResult<()> {
 }
 
 fn run_dbg<I: Iterator<Item = String>>(_args: I) -> LangResult<()> {
-    mom::dbg::run().map_err(|err| {
-        Diagnostic::at_start(format!("dbg i/o error: {err}"))
-    })
+    mom::dbg::run().map_err(|err| Diagnostic::at_start(format!("dbg i/o error: {err}")))
 }
 
 fn run_prof<I: Iterator<Item = String>>(mut args: I) -> LangResult<()> {
@@ -490,14 +482,13 @@ fn run_prof<I: Iterator<Item = String>>(mut args: I) -> LangResult<()> {
                 })?;
             }
             "-o" | "--output" => {
-                output = Some(PathBuf::from(args.next().ok_or_else(|| {
-                    Diagnostic::at_start("expected a path after '-o'")
-                })?));
+                output =
+                    Some(PathBuf::from(args.next().ok_or_else(|| {
+                        Diagnostic::at_start("expected a path after '-o'")
+                    })?));
             }
             other if other.starts_with('-') => {
-                return Err(Diagnostic::at_start(format!(
-                    "unknown prof flag '{other}'"
-                )));
+                return Err(Diagnostic::at_start(format!("unknown prof flag '{other}'")));
             }
             other => {
                 if source_path.is_some() {
@@ -513,10 +504,7 @@ fn run_prof<I: Iterator<Item = String>>(mut args: I) -> LangResult<()> {
     let source_path = source_path
         .ok_or_else(|| Diagnostic::at_start("expected a source file path for 'prof'"))?;
     let source = fs::read_to_string(&source_path).map_err(|err| {
-        Diagnostic::at_start(format!(
-            "failed to read '{}': {err}",
-            source_path.display()
-        ))
+        Diagnostic::at_start(format!("failed to read '{}': {err}", source_path.display()))
     })?;
     let (stdout, report) = mom::prof::profile_source(&source)?;
     let rendered = mom::prof::render(&report, format);
@@ -527,10 +515,7 @@ fn run_prof<I: Iterator<Item = String>>(mut args: I) -> LangResult<()> {
 
     if let Some(path) = output {
         fs::write(&path, &rendered).map_err(|err| {
-            Diagnostic::at_start(format!(
-                "failed to write '{}': {err}",
-                path.display()
-            ))
+            Diagnostic::at_start(format!("failed to write '{}': {err}", path.display()))
         })?;
         eprintln!("wrote profile to {}", path.display());
     } else {
@@ -553,9 +538,10 @@ fn run_selfhost<I: Iterator<Item = String>>(mut args: I) -> LangResult<()> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-o" | "--output" => {
-                output_path = Some(PathBuf::from(args.next().ok_or_else(|| {
-                    Diagnostic::at_start("expected a path after '-o'")
-                })?));
+                output_path =
+                    Some(PathBuf::from(args.next().ok_or_else(|| {
+                        Diagnostic::at_start("expected a path after '-o'")
+                    })?));
             }
             "--emit-c" => {
                 keep_c = Some(PathBuf::from(args.next().ok_or_else(|| {
@@ -583,9 +569,8 @@ fn run_selfhost<I: Iterator<Item = String>>(mut args: I) -> LangResult<()> {
         .ok_or_else(|| Diagnostic::at_start("expected a source .mom file for 'selfhost'"))?;
 
     // Repo root is the directory containing `compiler/src/main.mom`.
-    let exe = std::env::current_exe().map_err(|err| {
-        Diagnostic::at_start(format!("cannot resolve current executable: {err}"))
-    })?;
+    let exe = std::env::current_exe()
+        .map_err(|err| Diagnostic::at_start(format!("cannot resolve current executable: {err}")))?;
     let from_exe: Option<PathBuf> = exe
         .ancestors()
         .find(|p| p.join("compiler/src/main.mom").exists())
@@ -617,9 +602,8 @@ fn run_selfhost<I: Iterator<Item = String>>(mut args: I) -> LangResult<()> {
     }
 
     let work_dir = repo_root.join("target/selfhost");
-    fs::create_dir_all(&work_dir).map_err(|err| {
-        Diagnostic::at_start(format!("cannot create work dir: {err}"))
-    })?;
+    fs::create_dir_all(&work_dir)
+        .map_err(|err| Diagnostic::at_start(format!("cannot create work dir: {err}")))?;
 
     let stem = source_path
         .file_stem()
@@ -664,10 +648,7 @@ fn run_selfhost<I: Iterator<Item = String>>(mut args: I) -> LangResult<()> {
 
     if execute {
         let status = Command::new(&bin_out).status().map_err(|err| {
-            Diagnostic::at_start(format!(
-                "failed to execute '{}': {err}",
-                bin_out.display()
-            ))
+            Diagnostic::at_start(format!("failed to execute '{}': {err}", bin_out.display()))
         })?;
         if !status.success() {
             process::exit(status.code().unwrap_or(1));

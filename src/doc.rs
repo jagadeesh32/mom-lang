@@ -135,8 +135,7 @@ fn render_item(
                 .get(&e.span.line)
                 .cloned()
                 .unwrap_or_else(|| "_(no description)_".to_string());
-            let variants: Vec<String> =
-                e.variants.iter().map(|v| v.name.clone()).collect();
+            let variants: Vec<String> = e.variants.iter().map(|v| v.name.clone()).collect();
             let mut body = String::new();
             body.push_str("```mom\nenum ");
             body.push_str(&e.name);

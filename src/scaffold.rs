@@ -27,10 +27,7 @@ pub fn new_project(target: &Path) -> LangResult<ScaffoldReport> {
         )));
     }
     fs::create_dir_all(target).map_err(|err| {
-        Diagnostic::at_start(format!(
-            "failed to create '{}': {err}",
-            target.display()
-        ))
+        Diagnostic::at_start(format!("failed to create '{}': {err}", target.display()))
     })?;
     scaffold(target)
 }
@@ -38,10 +35,7 @@ pub fn new_project(target: &Path) -> LangResult<ScaffoldReport> {
 pub fn init_project(target: &Path) -> LangResult<ScaffoldReport> {
     if !target.exists() {
         fs::create_dir_all(target).map_err(|err| {
-            Diagnostic::at_start(format!(
-                "failed to create '{}': {err}",
-                target.display()
-            ))
+            Diagnostic::at_start(format!("failed to create '{}': {err}", target.display()))
         })?;
     }
     scaffold(target)

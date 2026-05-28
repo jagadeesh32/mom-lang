@@ -134,11 +134,8 @@ fn manifest_round_trips_basic_sections() {
 
 #[test]
 fn manifest_upsert_replaces_value() {
-    let mut manifest = Manifest::parse(
-        PathBuf::from("mom.toml"),
-        "[dependencies]\nfoo = \"1.0\"\n",
-    )
-    .unwrap();
+    let mut manifest =
+        Manifest::parse(PathBuf::from("mom.toml"), "[dependencies]\nfoo = \"1.0\"\n").unwrap();
     manifest.upsert("dependencies", "foo", Value::String("2.0".into()));
     assert_eq!(
         manifest
@@ -219,11 +216,7 @@ fn bench_discovers_benches_dir_and_runs_iterations() {
     let dir = tmpdir("bench-discover");
     let benches = dir.join("benches");
     fs::create_dir_all(&benches).unwrap();
-    fs::write(
-        benches.join("a_bench.mom"),
-        "fn main() { print(\"hi\") }\n",
-    )
-    .unwrap();
+    fs::write(benches.join("a_bench.mom"), "fn main() { print(\"hi\") }\n").unwrap();
 
     let mut options = bench::BenchOptions::new();
     options.iterations = 4;
@@ -250,13 +243,7 @@ fn bench_discovers_src_bench_suffix() {
 
     let report = bench::run_all(&dir, &bench::BenchOptions::new()).unwrap();
     assert_eq!(report.total(), 1, "{:?}", report.outcomes);
-    assert!(
-        report.outcomes[0]
-            .path
-            .file_name()
-            .and_then(|s| s.to_str())
-            == Some("hot_bench.mom")
-    );
+    assert!(report.outcomes[0].path.file_name().and_then(|s| s.to_str()) == Some("hot_bench.mom"));
     fs::remove_dir_all(&dir).ok();
 }
 
@@ -397,7 +384,10 @@ fn prof_pprof_emits_function_table() {
 
 #[test]
 fn prof_format_parser_round_trips_known_modes() {
-    assert_eq!(prof::ProfFormat::parse("text"), Some(prof::ProfFormat::Text));
+    assert_eq!(
+        prof::ProfFormat::parse("text"),
+        Some(prof::ProfFormat::Text)
+    );
     assert_eq!(
         prof::ProfFormat::parse("folded"),
         Some(prof::ProfFormat::Folded)
@@ -425,19 +415,18 @@ fn prof_pprof_proto_bytes_include_function_names_in_string_table() {
     // string_table entries land as length-delimited field 6 (tag = (6<<3)|2 = 0x32).
     // Confirm both "main" and "helper" appear somewhere in the byte stream.
     assert!(
-        bytes
-            .windows(b"main".len())
-            .any(|w| w == b"main"),
+        bytes.windows(b"main".len()).any(|w| w == b"main"),
         "pprof.proto missing 'main' name"
     );
     assert!(
-        bytes
-            .windows(b"helper".len())
-            .any(|w| w == b"helper"),
+        bytes.windows(b"helper".len()).any(|w| w == b"helper"),
         "pprof.proto missing 'helper' name"
     );
     // The first field tag must be 0x0a (sample_type: field 1, wire-type 2).
-    assert_eq!(bytes[0], 0x0a, "pprof.proto should start with sample_type tag");
+    assert_eq!(
+        bytes[0], 0x0a,
+        "pprof.proto should start with sample_type tag"
+    );
 }
 
 // ---------------------------------------------------------------------------

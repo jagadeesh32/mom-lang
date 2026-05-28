@@ -234,9 +234,11 @@ fn is_bencher_type(ty: &TypeRef) -> bool {
 fn run_one(entry: &BenchEntry, options: &BenchOptions) -> BenchOutcome {
     let (path, function, kind) = match entry {
         BenchEntry::Main(p) => (p.clone(), None, BenchKind::Plain),
-        BenchEntry::Attr { path, function, kind } => {
-            (path.clone(), Some(function.clone()), *kind)
-        }
+        BenchEntry::Attr {
+            path,
+            function,
+            kind,
+        } => (path.clone(), Some(function.clone()), *kind),
     };
     let source = match fs::read_to_string(&path) {
         Ok(s) => s,
@@ -263,7 +265,12 @@ fn run_one(entry: &BenchEntry, options: &BenchOptions) -> BenchOutcome {
     for _ in 0..iterations {
         let start = Instant::now();
         if let Err(diag) = run() {
-            return failure(&path, function, options, format!("iteration failed: {diag}"));
+            return failure(
+                &path,
+                function,
+                options,
+                format!("iteration failed: {diag}"),
+            );
         }
         samples_ns.push(start.elapsed().as_nanos());
     }
@@ -284,7 +291,12 @@ fn run_one(entry: &BenchEntry, options: &BenchOptions) -> BenchOutcome {
     }
 }
 
-fn failure(path: &Path, function: Option<String>, options: &BenchOptions, message: String) -> BenchOutcome {
+fn failure(
+    path: &Path,
+    function: Option<String>,
+    options: &BenchOptions,
+    message: String,
+) -> BenchOutcome {
     BenchOutcome {
         path: path.to_path_buf(),
         function,
@@ -366,7 +378,11 @@ fn summarize(samples: &[u128]) -> (u128, u128, u128, u128, u128) {
     let variance: u128 = sorted
         .iter()
         .map(|s| {
-            let d = if *s > mean_ns { s - mean_ns } else { mean_ns - s };
+            let d = if *s > mean_ns {
+                s - mean_ns
+            } else {
+                mean_ns - s
+            };
             d * d
         })
         .sum::<u128>()

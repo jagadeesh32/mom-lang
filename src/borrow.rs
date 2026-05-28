@@ -148,8 +148,17 @@ impl BorrowChecker {
 
     fn check_stmt(&mut self, stmt: &Stmt) -> LangResult<()> {
         match stmt {
-            Stmt::Let { name, ty, mutable, value, span } => {
-                let kind = ty.as_ref().map(kind_of_type_ref).unwrap_or_else(|| infer_kind(value));
+            Stmt::Let {
+                name,
+                ty,
+                mutable,
+                value,
+                span,
+            } => {
+                let kind = ty
+                    .as_ref()
+                    .map(kind_of_type_ref)
+                    .unwrap_or_else(|| infer_kind(value));
                 let loan_source = self.evaluate_expr_for_let(value)?;
                 self.declare(
                     name,
@@ -184,9 +193,11 @@ impl BorrowChecker {
                     },
                 )
             }
-            Stmt::Assign { target, value, span } => {
-                self.check_assign(target, value, span)
-            }
+            Stmt::Assign {
+                target,
+                value,
+                span,
+            } => self.check_assign(target, value, span),
             Stmt::Expr { expr, .. } => {
                 self.visit_expr(expr)?;
                 Ok(())
@@ -197,11 +208,18 @@ impl BorrowChecker {
                 }
                 Ok(())
             }
-            Stmt::While { condition, body, .. } => {
+            Stmt::While {
+                condition, body, ..
+            } => {
                 self.visit_expr(condition)?;
                 self.check_block(body)
             }
-            Stmt::For { name, iter, body, span } => {
+            Stmt::For {
+                name,
+                iter,
+                body,
+                span,
+            } => {
                 self.visit_expr(iter)?;
                 self.scopes.push(Scope::default());
                 self.declare(
@@ -226,12 +244,7 @@ impl BorrowChecker {
         }
     }
 
-    fn check_assign(
-        &mut self,
-        target: &AssignTarget,
-        value: &Expr,
-        span: &Span,
-    ) -> LangResult<()> {
+    fn check_assign(&mut self, target: &AssignTarget, value: &Expr, span: &Span) -> LangResult<()> {
         self.consume_expr_as_value(value)?;
         match target {
             AssignTarget::Name(name) => {
@@ -246,9 +259,7 @@ impl BorrowChecker {
                 }
                 if !info.imm_borrowers.is_empty() || info.mut_borrower.is_some() {
                     return Err(Diagnostic::new(
-                        format!(
-                            "cannot assign to '{name}' while it is borrowed"
-                        ),
+                        format!("cannot assign to '{name}' while it is borrowed"),
                         span.clone(),
                     ));
                 }
@@ -277,7 +288,12 @@ impl BorrowChecker {
     /// through a no-op wrapper), record the loan; the borrow checker
     /// will release it when the new binding leaves scope.
     fn evaluate_expr_for_let(&mut self, expr: &Expr) -> LangResult<Option<(String, bool)>> {
-        if let Expr::Ref { expr: inner, is_mut, span } = expr {
+        if let Expr::Ref {
+            expr: inner,
+            is_mut,
+            span,
+        } = expr
+        {
             if let Some(name) = root_name(inner) {
                 self.start_loan(&name, *is_mut, span)?;
                 self.visit_expr_internal(inner, false)?;
@@ -300,7 +316,11 @@ impl BorrowChecker {
 
     fn visit_expr_internal(&mut self, expr: &Expr, consume: bool) -> LangResult<()> {
         match expr {
-            Expr::Int(_, _) | Expr::Float(_, _) | Expr::Bool(_, _) | Expr::String(_, _) | Expr::Unit(_) => Ok(()),
+            Expr::Int(_, _)
+            | Expr::Float(_, _)
+            | Expr::Bool(_, _)
+            | Expr::String(_, _)
+            | Expr::Unit(_) => Ok(()),
             Expr::Ident(name, span) => self.use_ident(name, consume, span),
             Expr::Path(_, _) => Ok(()),
             Expr::List(items, _) => {
@@ -370,9 +390,7 @@ impl BorrowChecker {
                 Ok(())
             }
             Expr::Match {
-                scrutinee,
-                arms,
-                ..
+                scrutinee, arms, ..
             } => {
                 self.visit_expr(scrutinee)?;
                 for arm in arms {
@@ -454,7 +472,9 @@ impl BorrowChecker {
         if is_mut {
             if !info.mutable {
                 return Err(Diagnostic::new(
-                    format!("cannot take `&mut` of immutable binding '{source}' (declare it `let mut`)"),
+                    format!(
+                        "cannot take `&mut` of immutable binding '{source}' (declare it `let mut`)"
+                    ),
                     span.clone(),
                 ));
             }
@@ -476,9 +496,7 @@ impl BorrowChecker {
         } else {
             if info.mut_borrower.is_some() {
                 return Err(Diagnostic::new(
-                    format!(
-                        "cannot borrow '{source}' as shared while it is borrowed mutably"
-                    ),
+                    format!("cannot borrow '{source}' as shared while it is borrowed mutably"),
                     span.clone(),
                 ));
             }

@@ -27,8 +27,7 @@ fn run_module(name: &str) -> String {
     let path = std_dir().join(format!("{name}.mom"));
     let source = fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
-    mom::run_source(&source)
-        .unwrap_or_else(|diag| panic!("std/{name}.mom failed: {diag}"))
+    mom::run_source(&source).unwrap_or_else(|diag| panic!("std/{name}.mom failed: {diag}"))
 }
 
 #[test]
@@ -122,8 +121,8 @@ fn every_std_module_under_std_dir_has_an_oracle_in_this_file() {
     // Guard against silent drift: if someone adds std/foo.mom they
     // need to add a test above. This sweep keeps the contract honest.
     let expected: &[&str] = &[
-        "core", "fmt", "alloc", "io", "log", "async", "actor", "net", "serde", "crypto",
-        "sync", "os", "math", "test",
+        "core", "fmt", "alloc", "io", "log", "async", "actor", "net", "serde", "crypto", "sync",
+        "os", "math", "test",
     ];
     let dir = std_dir();
     let mut on_disk: Vec<String> = Vec::new();

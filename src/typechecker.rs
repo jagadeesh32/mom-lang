@@ -102,8 +102,8 @@ impl TypeChecker {
         let mut known_types = HashSet::new();
         for builtin in [
             "Int", "Float", "Bool", "String", "Option", "Result", "List", "Dict", "Task", "Future",
-            "Box", "Rc", "Arc", "Weak", "Cell", "RefCell", "Mutex", "RwLock", "Atomic",
-            "Channel", "Cancel", "Duration", "Instant",
+            "Box", "Rc", "Arc", "Weak", "Cell", "RefCell", "Mutex", "RwLock", "Atomic", "Channel",
+            "Cancel", "Duration", "Instant",
         ] {
             known_types.insert(builtin.to_string());
         }
@@ -194,8 +194,10 @@ impl TypeChecker {
                 Item::Enum(decl) => {
                     self.known_types.insert(decl.name.clone());
                     for variant in &decl.variants {
-                        self.enum_variants
-                            .insert(variant.name.clone(), (decl.name.clone(), variant.payload.len()));
+                        self.enum_variants.insert(
+                            variant.name.clone(),
+                            (decl.name.clone(), variant.payload.len()),
+                        );
                     }
                 }
                 Item::Module(module) => {
@@ -217,11 +219,8 @@ impl TypeChecker {
                         .iter()
                         .map(|param| self.type_from_ref_with(&param.ty, &function.span, &generics))
                         .collect::<LangResult<Vec<_>>>()?;
-                    let result = self.type_from_ref_with(
-                        &function.return_type,
-                        &function.span,
-                        &generics,
-                    )?;
+                    let result =
+                        self.type_from_ref_with(&function.return_type, &function.span, &generics)?;
                     let signature = Type::Function(params, Box::new(result));
                     self.functions.insert(function.name.clone(), signature);
                 }
@@ -351,7 +350,11 @@ impl TypeChecker {
                 self.define(&decl.name, ty, false, decl.span.clone())?;
                 Ok(unit_stmt())
             }
-            Stmt::Assign { target, value, span } => {
+            Stmt::Assign {
+                target,
+                value,
+                span,
+            } => {
                 let value_ty = self.check_expr(value)?;
                 match target {
                     AssignTarget::Name(name) => {
@@ -472,24 +475,84 @@ impl TypeChecker {
                 }
                 if matches!(
                     name.as_str(),
-                    "print" | "println" | "eprint" | "input"
-                    | "len" | "push" | "pop" | "insert" | "remove"
-                    | "reverse" | "sort" | "sorted" | "reversed"
-                    | "sum" | "any" | "all" | "map" | "filter" | "reduce"
-                    | "enumerate" | "zip" | "range"
-                    | "split" | "join" | "upper" | "lower" | "strip"
-                    | "lstrip" | "rstrip" | "starts_with" | "ends_with"
-                    | "contains" | "find" | "replace" | "chars" | "substr"
-                    | "str" | "int" | "float" | "bool"
-                    | "abs" | "min" | "max" | "pow" | "round" | "floor"
-                    | "ceil" | "sqrt" | "hex" | "oct" | "bin" | "ord" | "chr"
-                    | "divmod" | "type_of" | "is_int" | "is_float"
-                    | "is_string" | "is_bool" | "is_list" | "is_dict" | "is_none"
-                    | "assert" | "exit" | "dict"
-                    | "to_string" | "read_file" | "write_file"
-                    | "args" | "getenv" | "panic"
-                    | "is_digit" | "is_alpha" | "is_alnum" | "parse_int"
-                    | "string_eq" | "none" | "null"
+                    "print"
+                        | "println"
+                        | "eprint"
+                        | "input"
+                        | "len"
+                        | "push"
+                        | "pop"
+                        | "insert"
+                        | "remove"
+                        | "reverse"
+                        | "sort"
+                        | "sorted"
+                        | "reversed"
+                        | "sum"
+                        | "any"
+                        | "all"
+                        | "map"
+                        | "filter"
+                        | "reduce"
+                        | "enumerate"
+                        | "zip"
+                        | "range"
+                        | "split"
+                        | "join"
+                        | "upper"
+                        | "lower"
+                        | "strip"
+                        | "lstrip"
+                        | "rstrip"
+                        | "starts_with"
+                        | "ends_with"
+                        | "contains"
+                        | "find"
+                        | "replace"
+                        | "chars"
+                        | "substr"
+                        | "str"
+                        | "int"
+                        | "float"
+                        | "bool"
+                        | "abs"
+                        | "min"
+                        | "max"
+                        | "pow"
+                        | "round"
+                        | "floor"
+                        | "ceil"
+                        | "sqrt"
+                        | "hex"
+                        | "oct"
+                        | "bin"
+                        | "ord"
+                        | "chr"
+                        | "divmod"
+                        | "type_of"
+                        | "is_int"
+                        | "is_float"
+                        | "is_string"
+                        | "is_bool"
+                        | "is_list"
+                        | "is_dict"
+                        | "is_none"
+                        | "assert"
+                        | "exit"
+                        | "dict"
+                        | "to_string"
+                        | "read_file"
+                        | "write_file"
+                        | "args"
+                        | "getenv"
+                        | "panic"
+                        | "is_digit"
+                        | "is_alpha"
+                        | "is_alnum"
+                        | "parse_int"
+                        | "string_eq"
+                        | "none"
+                        | "null"
                 ) {
                     return Ok(Type::Function(vec![Type::Unknown], Box::new(Type::Unknown)));
                 }
@@ -700,16 +763,12 @@ impl TypeChecker {
             BinaryOp::Subtract | BinaryOp::Multiply | BinaryOp::Divide | BinaryOp::Remainder => {
                 self.expect_same_numeric(&left_ty, &right_ty, span)
             }
-            BinaryOp::Equal | BinaryOp::NotEqual => {
-                Ok(Type::Bool)
-            }
+            BinaryOp::Equal | BinaryOp::NotEqual => Ok(Type::Bool),
             BinaryOp::Less | BinaryOp::LessEqual | BinaryOp::Greater | BinaryOp::GreaterEqual => {
                 self.expect_same_numeric(&left_ty, &right_ty, span)?;
                 Ok(Type::Bool)
             }
-            BinaryOp::And | BinaryOp::Or => {
-                Ok(Type::Bool)
-            }
+            BinaryOp::And | BinaryOp::Or => Ok(Type::Bool),
         }
     }
 

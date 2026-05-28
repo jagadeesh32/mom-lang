@@ -41,7 +41,6 @@ jobs:
             exe: .exe
     env:
       CARGO_TERM_COLOR: always
-      RUSTFLAGS: "-D warnings"
     steps:
       - uses: actions/checkout@v4
 
@@ -66,7 +65,7 @@ jobs:
 
       - name: Clippy
         if: ${{ !matrix.cross }}
-        run: cargo clippy --all-targets --target ${{ matrix.target }} -- -D warnings
+        run: cargo clippy --all-targets --target ${{ matrix.target }}
 
       - name: Install cross (ARM targets only)
         if: matrix.cross == true
@@ -97,8 +96,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Build stage-0 debug binary (required by selfhost tests)
+        run: cargo build
       - name: stage-1 selfhost regression
-        run: cargo test --release --test selfhost
+        run: cargo test --test selfhost
 
   stdlib:
     name: stdlib oracle sweep

@@ -106,13 +106,10 @@ fn normalize_separators(line: &str) -> String {
                 }
 
                 let expand = match b {
-                    b',' => {
-                        i + 1 < bytes.len() && !is_breakable(bytes[i + 1])
-                    }
+                    b',' => i + 1 < bytes.len() && !is_breakable(bytes[i + 1]),
                     b':' => {
                         // Skip if part of `::` on either side.
-                        let next_is_colon =
-                            i + 1 < bytes.len() && bytes[i + 1] == b':';
+                        let next_is_colon = i + 1 < bytes.len() && bytes[i + 1] == b':';
                         let prev_is_colon = prev == b':';
                         i + 1 < bytes.len()
                             && !is_breakable(bytes[i + 1])

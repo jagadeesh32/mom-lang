@@ -134,9 +134,7 @@ impl ProfilerState {
     }
 
     fn now_ns(&mut self) -> u128 {
-        let started = *self
-            .started_at
-            .get_or_insert_with(Instant::now);
+        let started = *self.started_at.get_or_insert_with(Instant::now);
         started.elapsed().as_nanos()
     }
 

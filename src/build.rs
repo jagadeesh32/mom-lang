@@ -186,9 +186,10 @@ fn copy_file(src: &Path, dst: &Path) -> LangResult<()> {
 }
 
 fn detect_project_root(source_path: &Path) -> PathBuf {
-    let mut candidate = source_path.parent().map(Path::to_path_buf).unwrap_or_else(|| {
-        env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-    });
+    let mut candidate = source_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     loop {
         if candidate.join("Cargo.toml").exists() || candidate.join("mom.toml").exists() {
             return candidate;

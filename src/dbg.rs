@@ -176,12 +176,7 @@ impl DbgServer {
         }
     }
 
-    fn on_launch(
-        &mut self,
-        request_json: &str,
-        request_seq: &str,
-        command: &str,
-    ) -> Vec<Outgoing> {
+    fn on_launch(&mut self, request_json: &str, request_seq: &str, command: &str) -> Vec<Outgoing> {
         if !self.initialized {
             return vec![Outgoing::Send(self.response(
                 request_seq,
@@ -221,7 +216,9 @@ impl DbgServer {
                         )));
                     }
                     out.push(Outgoing::Send(self.event("terminated", None)));
-                    out.push(Outgoing::Send(self.event("exited", Some("{\"exitCode\":0}"))));
+                    out.push(Outgoing::Send(
+                        self.event("exited", Some("{\"exitCode\":0}")),
+                    ));
                 }
                 Err(diag) => {
                     out.push(Outgoing::Send(self.event(
@@ -232,7 +229,9 @@ impl DbgServer {
                         )),
                     )));
                     out.push(Outgoing::Send(self.event("terminated", None)));
-                    out.push(Outgoing::Send(self.event("exited", Some("{\"exitCode\":1}"))));
+                    out.push(Outgoing::Send(
+                        self.event("exited", Some("{\"exitCode\":1}")),
+                    ));
                 }
             },
             Err(err) => {
@@ -244,7 +243,9 @@ impl DbgServer {
                     )),
                 )));
                 out.push(Outgoing::Send(self.event("terminated", None)));
-                out.push(Outgoing::Send(self.event("exited", Some("{\"exitCode\":2}"))));
+                out.push(Outgoing::Send(
+                    self.event("exited", Some("{\"exitCode\":2}")),
+                ));
             }
         }
 
@@ -276,9 +277,7 @@ impl DbgServer {
 
     fn event(&mut self, event: &str, body: Option<&str>) -> String {
         let seq = self.bump_seq();
-        let mut out = format!(
-            "{{\"seq\":{seq},\"type\":\"event\",\"event\":\"{event}\""
-        );
+        let mut out = format!("{{\"seq\":{seq},\"type\":\"event\",\"event\":\"{event}\"");
         if let Some(body) = body {
             out.push_str(&format!(",\"body\":{body}"));
         }
@@ -475,7 +474,8 @@ mod tests {
     #[test]
     fn initialize_replies_with_capabilities_and_event() {
         let mut server = DbgServer::new();
-        let out = server.handle("{\"seq\":1,\"type\":\"request\",\"command\":\"initialize\",\"arguments\":{}}");
+        let out = server
+            .handle("{\"seq\":1,\"type\":\"request\",\"command\":\"initialize\",\"arguments\":{}}");
         let joined = join(&out);
         assert!(joined.contains("\"command\":\"initialize\""));
         assert!(joined.contains("supportsConfigurationDoneRequest"));
@@ -504,7 +504,8 @@ mod tests {
     #[test]
     fn launch_before_initialize_fails() {
         let mut server = DbgServer::new();
-        let out = server.handle("{\"seq\":1,\"command\":\"launch\",\"arguments\":{\"program\":\"x\"}}");
+        let out =
+            server.handle("{\"seq\":1,\"command\":\"launch\",\"arguments\":{\"program\":\"x\"}}");
         let joined = join(&out);
         assert!(joined.contains("\"success\":false"));
         assert!(joined.contains("before 'initialize'"));

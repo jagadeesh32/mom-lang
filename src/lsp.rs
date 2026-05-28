@@ -125,9 +125,7 @@ fn diagnostics_notification(uri: &str, source: &str) -> String {
 }
 
 fn reply(id: &str, result: &str) -> String {
-    format!(
-        "{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{result}}}"
-    )
+    format!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{result}}}")
 }
 
 const INITIALIZE_RESULT: &str = "{\"capabilities\":{\"textDocumentSync\":1,\
@@ -269,7 +267,10 @@ mod tests {
     #[test]
     fn extracts_text_field_with_escapes() {
         let msg = "{\"uri\":\"file:///a.mom\",\"text\":\"fn main() {}\\n\"}";
-        assert_eq!(json_string_field(msg, "text"), Some("fn main() {}\n".into()));
+        assert_eq!(
+            json_string_field(msg, "text"),
+            Some("fn main() {}\n".into())
+        );
     }
 
     #[test]

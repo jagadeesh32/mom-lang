@@ -194,13 +194,7 @@ struct LintCtx<'a> {
 }
 
 impl<'a> LintCtx<'a> {
-    fn report(
-        &mut self,
-        category: Category,
-        rule: &'static str,
-        message: String,
-        span: Span,
-    ) {
+    fn report(&mut self, category: Category, rule: &'static str, message: String, span: Span) {
         let severity = self.config.severity_for(category, rule);
         if severity == Severity::Allow {
             return;
@@ -252,7 +246,11 @@ impl<'a> LintCtx<'a> {
     }
 
     fn visit_const(&mut self, decl: &ConstDecl) {
-        if !decl.name.chars().all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit()) {
+        if !decl
+            .name
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
+        {
             self.report(
                 Category::Style,
                 "naming",
@@ -304,9 +302,13 @@ impl<'a> LintCtx<'a> {
 
     fn visit_stmt(&mut self, stmt: &Stmt) {
         match stmt {
-            Stmt::Let { name, value, span, .. } => {
+            Stmt::Let {
+                name, value, span, ..
+            } => {
                 if !name.starts_with('_')
-                    && !name.chars().all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit())
+                    && !name
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c == '_' || c.is_ascii_digit())
                 {
                     self.report(
                         Category::Style,
@@ -325,7 +327,9 @@ impl<'a> LintCtx<'a> {
                     self.visit_expr(v);
                 }
             }
-            Stmt::While { condition, body, .. } => {
+            Stmt::While {
+                condition, body, ..
+            } => {
                 if let Expr::Bool(true, span) = condition {
                     self.report(
                         Category::Suspicious,
@@ -396,14 +400,21 @@ impl<'a> LintCtx<'a> {
                     self.visit_expr(value);
                 }
             }
-            Expr::If { condition, then_branch, else_branch, .. } => {
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
                 self.visit_expr(condition);
                 self.visit_block(then_branch);
                 if let Some(e) = else_branch {
                     self.visit_block(e);
                 }
             }
-            Expr::Match { scrutinee, arms, .. } => {
+            Expr::Match {
+                scrutinee, arms, ..
+            } => {
                 self.visit_expr(scrutinee);
                 self.check_match_wildcard_position(arms);
                 for arm in arms {
@@ -450,13 +461,7 @@ impl<'a> LintCtx<'a> {
     }
 }
 
-fn check_naming(
-    ctx: &mut LintCtx<'_>,
-    name: &str,
-    span: Span,
-    kind: &'static str,
-    pascal: bool,
-) {
+fn check_naming(ctx: &mut LintCtx<'_>, name: &str, span: Span, kind: &'static str, pascal: bool) {
     if name.is_empty() {
         return;
     }

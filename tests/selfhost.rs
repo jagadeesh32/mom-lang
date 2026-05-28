@@ -366,12 +366,11 @@ fn run_native_compiler(
 fn stage1_compiles_hello_example() {
     let root = repo_root();
     let mom = root.join("compiler/examples/hello.mom");
-    if !mom.exists() { return; }
+    if !mom.exists() {
+        return;
+    }
     if let Some(out) = try_run_stage1_file(&mom, "hello") {
-        assert_eq!(
-            out,
-            "hello from stage-1!\nhello, mom!\ngreeting count: 1\n"
-        );
+        assert_eq!(out, "hello from stage-1!\nhello, mom!\ngreeting count: 1\n");
     }
     // else: compiler rejected the file — expected until enhanced compiler lands
 }
@@ -380,7 +379,9 @@ fn stage1_compiles_hello_example() {
 fn stage1_compiles_counter_example() {
     let root = repo_root();
     let mom = root.join("compiler/examples/counter.mom");
-    if !mom.exists() { return; }
+    if !mom.exists() {
+        return;
+    }
     if let Some(out) = try_run_stage1_file(&mom, "counter") {
         assert_eq!(out, "0\n1\n2\n3\n4\n");
     }
@@ -390,7 +391,9 @@ fn stage1_compiles_counter_example() {
 fn stage1_compiles_sum_example() {
     let root = repo_root();
     let mom = root.join("compiler/examples/sum.mom");
-    if !mom.exists() { return; }
+    if !mom.exists() {
+        return;
+    }
     if let Some(out) = try_run_stage1_file(&mom, "sum") {
         assert_eq!(out, "5050\n");
     }
@@ -400,7 +403,9 @@ fn stage1_compiles_sum_example() {
 fn stage1_compiles_fibonacci_example() {
     let root = repo_root();
     let mom = root.join("compiler/examples/fibonacci.mom");
-    if !mom.exists() { return; }
+    if !mom.exists() {
+        return;
+    }
     if let Some(out) = try_run_stage1_file(&mom, "fibonacci") {
         assert_eq!(out, "55\n");
     }
@@ -582,7 +587,10 @@ fn selfhost_fixed_point() {
         .env("MOM_OUTPUT", &c1)
         .status()
         .expect("failed to spawn stage-0 mom (round 1)");
-    assert!(status.success(), "stage-0 failed compiling stage-1 (round 1)");
+    assert!(
+        status.success(),
+        "stage-0 failed compiling stage-1 (round 1)"
+    );
 
     let cc = std::env::var("CC").unwrap_or_else(|_| "cc".into());
     Command::new(&cc)
