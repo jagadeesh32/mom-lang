@@ -19,12 +19,18 @@ fn unique_id(prefix: &str) -> String {
     format!("{prefix}-{n}-{}", std::process::id())
 }
 
+fn stage0_bin(root: &PathBuf) -> PathBuf {
+    let name = if cfg!(windows) { "mom.exe" } else { "mom" };
+    root.join("target/debug").join(name)
+}
+
 fn run_stage1(source: &str, source_name: &str) -> String {
     let root = repo_root();
+    let stage0 = stage0_bin(&root);
 
     // Ensure stage-0 is built.
     assert!(
-        root.join("target/debug/mom").exists(),
+        stage0.exists(),
         "stage-0 binary missing — run `cargo build` first"
     );
 
@@ -38,7 +44,7 @@ fn run_stage1(source: &str, source_name: &str) -> String {
     std::fs::write(&mom_path, source).unwrap();
 
     // Stage-0 runs the mom-in-mom compiler.
-    let status = Command::new(root.join("target/debug/mom"))
+    let status = Command::new(&stage0)
         .arg("run")
         .arg(root.join("compiler/src/main.mom"))
         .env("MOM_INPUT", &mom_path)

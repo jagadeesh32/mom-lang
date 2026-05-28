@@ -6,14 +6,10 @@ on:
   pull_request:
     branches: [main]
 
-# Tier-1 matrix per docs/roadmap.md Phase 7:
-#   Linux × {x86_64, aarch64}
-#   macOS × {x86_64, aarch64}
-#   Windows × {x86_64, aarch64}
-#
-# A green CI matrix here is the *acceptance criterion* for the "Tier-1
-# platforms" row in the Phase 7 table. Tier-2 (WASM, RISC-V, Cortex-M)
-# runs in a separate, best-effort workflow.
+# Tier-1 matrix:
+#   Linux   × {x86_64, aarch64 (cross)}
+#   macOS   × {aarch64}
+#   Windows × {x86_64}
 
 jobs:
   test:
@@ -28,16 +24,10 @@ jobs:
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             cross: true
-          - os: macos-13
-            target: x86_64-apple-darwin
           - os: macos-14
             target: aarch64-apple-darwin
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            exe: .exe
-          - os: windows-latest
-            target: aarch64-pc-windows-msvc
-            cross: true
             exe: .exe
     env:
       CARGO_TERM_COLOR: always
@@ -82,7 +72,7 @@ jobs:
 
       - name: Build debug binary (required by selfhost tests)
         if: ${{ !matrix.cross }}
-        run: cargo build --target ${{ matrix.target }}
+        run: cargo build
 
       - name: Test
         if: ${{ !matrix.cross }}

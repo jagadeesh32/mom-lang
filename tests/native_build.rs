@@ -61,7 +61,9 @@ fn compile_and_run(source: &str) -> String {
         "binary exited non-zero: stderr={}",
         String::from_utf8_lossy(&output.stderr)
     );
-    String::from_utf8(output.stdout).expect("non-utf8 stdout")
+    String::from_utf8(output.stdout)
+        .expect("non-utf8 stdout")
+        .replace("\r\n", "\n")
 }
 
 #[test]
