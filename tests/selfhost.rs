@@ -77,7 +77,7 @@ fn run_stage1(source: &str, source_name: &str) -> String {
         "stage-1 binary exited non-zero: stderr={}",
         String::from_utf8_lossy(&output.stderr)
     );
-    String::from_utf8(output.stdout).unwrap()
+    String::from_utf8(output.stdout).unwrap().replace("\r\n", "\n")
 }
 
 #[test]
