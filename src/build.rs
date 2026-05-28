@@ -202,13 +202,13 @@ fn detect_project_root(source_path: &Path) -> PathBuf {
 }
 
 fn locate_runtime_dir(project_root: &Path) -> LangResult<PathBuf> {
-    let candidate = project_root.join("runtime");
+    let candidate = project_root.join("compiler");
     if candidate.join("runtime.c").exists() {
         return Ok(candidate);
     }
     // Fall back to a sibling of the Cargo manifest (works for cargo run).
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let fallback = manifest.join("runtime");
+    let fallback = manifest.join("compiler");
     if fallback.join("runtime.c").exists() {
         return Ok(fallback);
     }

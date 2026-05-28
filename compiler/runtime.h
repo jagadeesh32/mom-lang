@@ -219,6 +219,7 @@ int mom_bool_from_val(MomVal *v);
 void mom_print_int(int64_t n);
 void mom_print_bool(int b);
 void mom_print_unit(void);
+void mom_print_float(double f);
 void mom_print_str(const char *s);
 
 // Conversion helpers callable from stage-1-generated C.
@@ -232,6 +233,30 @@ int64_t mom_str_len_raw(const char *s);
 // digit, otherwise -1. Used by self-hosted programs that don't yet have
 // Option types.
 int64_t mom_digit_value(const char *c);
+
+// ── String helpers (stage-1.4) ────────────────────────────────────────────────
+MomVal *mom_str_trim(MomVal *s);
+MomVal *mom_str_toupper(MomVal *s);
+MomVal *mom_str_tolower(MomVal *s);
+MomVal *mom_str_split_result(MomVal *s, MomVal *delim);
+
+// ── Struct type id (stage-1.4 trait dispatch) ─────────────────────────────────
+// Returns the type_id of a struct value, or -1 if not a struct.
+int mom_struct_type_id(MomVal *v);
+
+// ── Channel (stage-1.4 stub) ──────────────────────────────────────────────────
+// Synchronous stub implementation: channels are just lists.
+MomVal *mom_channel_new(MomVal *capacity);
+void    mom_channel_send(MomVal *ch, MomVal *val);
+MomVal *mom_channel_recv(MomVal *ch);
+MomVal *mom_channel_try_recv(MomVal *ch);
+void    mom_channel_close(MomVal *ch);
+int64_t mom_channel_capacity(MomVal *ch);
+
+// ── Cancel token (stage-1.4 stub) ────────────────────────────────────────────
+MomVal *mom_cancel_new(void);
+void    mom_cancel_signal(MomVal *token);
+MomVal *mom_cancel_is_cancelled(MomVal *token);
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 // stage-1 compiled programs define mom_main(); runtime provides main().

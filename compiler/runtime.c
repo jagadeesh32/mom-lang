@@ -1108,6 +1108,10 @@ void mom_print_unit(void) {
     printf("()\n");
 }
 
+void mom_print_float(double f) {
+    printf("%g\n", f);
+}
+
 void mom_print_str(const char *s) {
     /* stage-1 `print(s: String)` prints the string and a newline,
      * matching the behaviour of mom_print_int/bool. */
@@ -1134,6 +1138,103 @@ int64_t mom_digit_value(const char *c) {
     unsigned char ch = (unsigned char)c[0];
     if (ch >= '0' && ch <= '9') return (int64_t)(ch - '0');
     return -1;
+}
+
+// ── String helpers (stage-1.4) ────────────────────────────────────────────────
+
+MomVal *mom_str_trim(MomVal *s) {
+    const char *src = mom_str_val(s);
+    int len = (int)strlen(src);
+    int start = 0, end = len;
+    while (start < end && (src[start] == ' ' || src[start] == '\t' || src[start] == '\n' || src[start] == '\r'))
+        start++;
+    while (end > start && (src[end-1] == ' ' || src[end-1] == '\t' || src[end-1] == '\n' || src[end-1] == '\r'))
+        end--;
+    char *buf = (char *)mom_alloc(end - start + 1);
+    memcpy(buf, src + start, end - start);
+    buf[end - start] = '\0';
+    return mom_str_owned(buf);
+}
+
+MomVal *mom_str_toupper(MomVal *s) {
+    const char *src = mom_str_val(s);
+    int len = (int)strlen(src);
+    char *buf = (char *)mom_alloc(len + 1);
+    for (int i = 0; i < len; i++)
+        buf[i] = (src[i] >= 'a' && src[i] <= 'z') ? src[i] - 32 : src[i];
+    buf[len] = '\0';
+    return mom_str_owned(buf);
+}
+
+MomVal *mom_str_tolower(MomVal *s) {
+    const char *src = mom_str_val(s);
+    int len = (int)strlen(src);
+    char *buf = (char *)mom_alloc(len + 1);
+    for (int i = 0; i < len; i++)
+        buf[i] = (src[i] >= 'A' && src[i] <= 'Z') ? src[i] + 32 : src[i];
+    buf[len] = '\0';
+    return mom_str_owned(buf);
+}
+
+// ── Struct type id ────────────────────────────────────────────────────────────
+
+int mom_struct_type_id(MomVal *v) {
+    if (!v || v->tag != MOM_TAG_STRUCT) return -1;
+    return v->data.strct.type_id;
+}
+
+// ── Channel stub (synchronous — backed by a list) ────────────────────────────
+
+MomVal *mom_channel_new(MomVal *capacity) {
+    (void)capacity;
+    return mom_list_new();
+}
+
+void mom_channel_send(MomVal *ch, MomVal *val) {
+    mom_list_push(ch, val);
+}
+
+MomVal *mom_channel_recv(MomVal *ch) {
+    if (ch->data.list.len == 0)
+        return mom_variant(MOM_OPT_None, 0);
+    MomVal *front = ch->data.list.items[0];
+    mom_list_remove(ch, 0);
+    return mom_variant(MOM_OPT_Some, 1, front);
+}
+
+MomVal *mom_channel_try_recv(MomVal *ch) {
+    if (ch->data.list.len == 0)
+        return mom_variant(MOM_OPT_None, 0);
+    MomVal *front = ch->data.list.items[0];
+    mom_list_remove(ch, 0);
+    return mom_variant(MOM_OPT_Some, 1, front);
+}
+
+void mom_channel_close(MomVal *ch) {
+    (void)ch;
+    /* no-op for stub */
+}
+
+int64_t mom_channel_capacity(MomVal *ch) {
+    (void)ch;
+    return 0;
+}
+
+// ── Cancel token stub ─────────────────────────────────────────────────────────
+
+MomVal *mom_cancel_new(void) {
+    // Use a single-element list [false] as the cancel token
+    MomVal *tok = mom_list_new();
+    mom_list_push(tok, mom_bool(0));
+    return tok;
+}
+
+void mom_cancel_signal(MomVal *token) {
+    mom_list_set(token, 0, mom_bool(1));
+}
+
+MomVal *mom_cancel_is_cancelled(MomVal *token) {
+    return mom_list_get(token, 0);
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────

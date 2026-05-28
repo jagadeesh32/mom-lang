@@ -1,7 +1,7 @@
 //! Codegen — Phase 1 C-backend.
 //!
 //! Lowers the supported subset of the AST to portable C99 source.
-//! The output is paired with `runtime/runtime.c` and compiled by a
+//! The output is paired with `compiler/runtime.c` and compiled by a
 //! host C compiler (`cc`, configurable via `$CC`).
 //!
 //! Supported in Phase 1:
