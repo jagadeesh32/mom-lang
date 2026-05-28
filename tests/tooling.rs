@@ -465,7 +465,7 @@ fn dbg_launch_executes_and_terminates() {
     let _ = server.handle("{\"seq\":1,\"command\":\"initialize\",\"arguments\":{}}");
     let launch = format!(
         "{{\"seq\":2,\"command\":\"launch\",\"arguments\":{{\"program\":\"{}\"}}}}",
-        program.display()
+        program.display().to_string().replace('\\', "\\\\")
     );
     let out = server.handle(&launch);
     let joined = dbg_join(&out);
