@@ -80,15 +80,25 @@ jobs:
             cargo build --target ${{ matrix.target }} --release
           fi
 
+      - name: Build debug binary (required by selfhost tests)
+        if: ${{ !matrix.cross }}
+        run: cargo build --target ${{ matrix.target }}
+
       - name: Test
         if: ${{ !matrix.cross }}
         run: cargo test --target ${{ matrix.target }} --release
 
       - name: Run hello.mom under the freshly built compiler
-        if: ${{ !matrix.cross }}
+        if: ${{ !matrix.cross && runner.os != 'Windows' }}
         shell: bash
         run: |
           ./target/${{ matrix.target }}/release/mom run examples/hello.mom
+
+      - name: Run hello.mom under the freshly built compiler (Windows)
+        if: ${{ !matrix.cross && runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          & ".\target\${{ matrix.target }}\release\mom.exe" run examples\hello.mom
 
   selfhost:
     name: stage-1 selfhost parity

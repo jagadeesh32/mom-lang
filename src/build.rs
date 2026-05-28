@@ -89,7 +89,11 @@ pub fn build(options: &BuildOptions) -> LangResult<BuildReport> {
             cache_entry.display()
         ))
     })?;
-    let cached_binary = cache_entry.join("program");
+    let cached_binary = cache_entry.join(if cfg!(windows) {
+        "program.exe"
+    } else {
+        "program"
+    });
     let cached_c = cache_entry.join("program.c");
 
     if cached_binary.exists() {
