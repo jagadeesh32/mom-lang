@@ -3,10 +3,10 @@
 **Mom** is a modern, safe, fast, self-hosted systems programming language.  
 It compiles to native binaries via C, features a borrow checker, and is written in itself.
 
-[![CI](https://github.com/jagadeesh32/mom/actions/workflows/ci.yml/badge.svg)](https://github.com/jagadeesh32/mom/actions/workflows/ci.yml)
-[![Release](https://github.com/jagadeesh32/mom/actions/workflows/release.yml/badge.svg)](https://github.com/jagadeesh32/mom/actions/workflows/release.yml)
+[![CI](https://github.com/jagadeesh32/mom-lang/actions/workflows/ci.yml/badge.svg)](https://github.com/jagadeesh32/mom-lang/actions/workflows/ci.yml)
+[![Release](https://github.com/jagadeesh32/mom-lang/actions/workflows/release.yml/badge.svg)](https://github.com/jagadeesh32/mom-lang/actions/workflows/release.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE-APACHE)
-[![Version](https://img.shields.io/github/v/release/jagadeesh32/mom)](https://github.com/jagadeesh32/mom/releases/latest)
+[![Version](https://img.shields.io/github/v/release/jagadeesh32/mom-lang)](https://github.com/jagadeesh32/mom-lang/releases/latest)
 
 ```mom
 fn fib(n: Int) -> Int:
@@ -46,7 +46,7 @@ fn main():
 
 ```bash
 # Download and install .deb package
-curl -fsSL https://github.com/jagadeesh32/mom/releases/latest/download/mom-x86_64.deb -o mom.deb
+curl -fsSL https://github.com/jagadeesh32/mom-lang/releases/latest/download/mom-x86_64.deb -o mom.deb
 sudo dpkg -i mom.deb
 mom version
 ```
@@ -54,7 +54,7 @@ mom version
 #### Debian / Ubuntu (ARM64 — Raspberry Pi, AWS Graviton, etc.)
 
 ```bash
-curl -fsSL https://github.com/jagadeesh32/mom/releases/latest/download/mom-aarch64.deb -o mom.deb
+curl -fsSL https://github.com/jagadeesh32/mom-lang/releases/latest/download/mom-aarch64.deb -o mom.deb
 sudo dpkg -i mom.deb
 mom version
 ```
@@ -63,27 +63,27 @@ mom version
 
 ```bash
 # DNF (Fedora / RHEL 8+)
-sudo dnf install https://github.com/jagadeesh32/mom/releases/latest/download/mom-x86_64.rpm
+sudo dnf install https://github.com/jagadeesh32/mom-lang/releases/latest/download/mom-x86_64.rpm
 
 # YUM (CentOS 7 / older RHEL)
-sudo yum install https://github.com/jagadeesh32/mom/releases/latest/download/mom-x86_64.rpm
+sudo yum install https://github.com/jagadeesh32/mom-lang/releases/latest/download/mom-x86_64.rpm
 ```
 
 #### Red Hat / Fedora / CentOS (ARM64)
 
 ```bash
-sudo dnf install https://github.com/jagadeesh32/mom/releases/latest/download/mom-aarch64.rpm
+sudo dnf install https://github.com/jagadeesh32/mom-lang/releases/latest/download/mom-aarch64.rpm
 ```
 
 #### Universal tarball (any Linux distro)
 
 ```bash
 # x86_64
-curl -fsSL https://github.com/jagadeesh32/mom/releases/latest/download/mom-linux-x86_64.tar.gz | \
+curl -fsSL https://github.com/jagadeesh32/mom-lang/releases/latest/download/mom-linux-x86_64.tar.gz | \
   tar -xzf - --strip-components=1 -C ~/.local/
 
 # ARM64
-curl -fsSL https://github.com/jagadeesh32/mom/releases/latest/download/mom-linux-aarch64.tar.gz | \
+curl -fsSL https://github.com/jagadeesh32/mom-lang/releases/latest/download/mom-linux-aarch64.tar.gz | \
   tar -xzf - --strip-components=1 -C ~/.local/
 
 # Add to PATH (add this to ~/.bashrc or ~/.zshrc)
@@ -97,7 +97,7 @@ export PATH="$HOME/.local/bin:$PATH"
 #### Apple Silicon (M1 / M2 / M3 / M4)
 
 ```bash
-curl -fsSL https://github.com/jagadeesh32/mom/releases/latest/download/mom-macos-aarch64.tar.gz | \
+curl -fsSL https://github.com/jagadeesh32/mom-lang/releases/latest/download/mom-macos-aarch64.tar.gz | \
   tar -xzf - --strip-components=1 -C ~/.local/
 export PATH="$HOME/.local/bin:$PATH"
 mom version
@@ -114,7 +114,7 @@ mom version
 
 ```powershell
 # PowerShell — run as regular user (no admin needed)
-Invoke-WebRequest -Uri "https://github.com/jagadeesh32/mom/releases/latest/download/mom-windows-x86_64.zip" `
+Invoke-WebRequest -Uri "https://github.com/jagadeesh32/mom-lang/releases/latest/download/mom-windows-x86_64.zip" `
   -OutFile mom.zip
 Expand-Archive mom.zip -DestinationPath "$env:LOCALAPPDATA\mom" -Force
 
@@ -131,7 +131,7 @@ mom version
 #### ARM64 (Snapdragon X / Copilot+ PCs)
 
 ```powershell
-Invoke-WebRequest -Uri "https://github.com/jagadeesh32/mom/releases/latest/download/mom-windows-aarch64.zip" `
+Invoke-WebRequest -Uri "https://github.com/jagadeesh32/mom-lang/releases/latest/download/mom-windows-aarch64.zip" `
   -OutFile mom.zip
 Expand-Archive mom.zip -DestinationPath "$env:LOCALAPPDATA\mom" -Force
 
@@ -145,22 +145,22 @@ $binDir = "$env:LOCALAPPDATA\mom\mom-windows-aarch64"
 
 **Linux / macOS:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jagadeesh32/mom/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jagadeesh32/mom-lang/main/scripts/install.sh | bash
 ```
 
 Install a specific version:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jagadeesh32/mom/main/scripts/install.sh | bash -s -- --version v0.2.0
+curl -fsSL https://raw.githubusercontent.com/jagadeesh32/mom-lang/main/scripts/install.sh | bash -s -- --version v0.2.0
 ```
 
 Install to a custom prefix:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jagadeesh32/mom/main/scripts/install.sh | bash -s -- --prefix /usr/local
+curl -fsSL https://raw.githubusercontent.com/jagadeesh32/mom-lang/main/scripts/install.sh | bash -s -- --prefix /usr/local
 ```
 
 **Windows (PowerShell):**
 ```powershell
-irm https://raw.githubusercontent.com/jagadeesh32/mom/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/jagadeesh32/mom-lang/main/scripts/install.ps1 | iex
 ```
 
 ---
@@ -170,7 +170,7 @@ irm https://raw.githubusercontent.com/jagadeesh32/mom/main/scripts/install.ps1 |
 Requires **Rust 1.78+** and `cargo`.
 
 ```bash
-git clone https://github.com/jagadeesh32/mom.git
+git clone https://github.com/jagadeesh32/mom-lang.git
 cd mom
 cargo build --release
 ./target/release/mom version
@@ -398,7 +398,7 @@ The standard library is in the `std/` directory:
 Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
 
 ```bash
-git clone https://github.com/jagadeesh32/mom.git
+git clone https://github.com/jagadeesh32/mom-lang.git
 cd mom
 cargo build
 cargo test

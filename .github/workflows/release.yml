@@ -233,7 +233,7 @@ jobs:
             --architecture "${{ matrix.deb_arch }}" \
             --maintainer "Mom Language <mom@example.com>" \
             --description "Mom — a modern, safe, fast self-hosted systems programming language" \
-            --url "https://github.com/jagadeesh32/mom" \
+            --url "https://github.com/jagadeesh32/mom-lang" \
             --license "Apache-2.0" \
             --category "devel" \
             --depends "gcc" \
@@ -260,7 +260,7 @@ jobs:
             --architecture "${{ matrix.rpm_arch }}" \
             --maintainer "Mom Language <mom@example.com>" \
             --description "Mom — a modern, safe, fast self-hosted systems programming language" \
-            --url "https://github.com/jagadeesh32/mom" \
+            --url "https://github.com/jagadeesh32/mom-lang" \
             --license "Apache-2.0" \
             --category "Development/Languages" \
             --depends "gcc" \

@@ -1,10 +1,10 @@
 # install.ps1 — Install mom programming language on Windows
 #
 # Usage (run in PowerShell as regular user):
-#   irm https://raw.githubusercontent.com/jagadeesh32/mom/main/scripts/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/jagadeesh32/mom-lang/main/scripts/install.ps1 | iex
 #
 # With options:
-#   $env:MOM_VERSION="v0.2.0"; irm https://raw.githubusercontent.com/jagadeesh32/mom/main/scripts/install.ps1 | iex
+#   $env:MOM_VERSION="v0.2.0"; irm https://raw.githubusercontent.com/jagadeesh32/mom-lang/main/scripts/install.ps1 | iex
 #
 # The installer:
 #   1. Detects your Windows architecture (x86_64 or aarch64)
@@ -24,7 +24,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
-$REPO = "jagadeesh32/mom"
+$REPO = "jagadeesh32/mom-lang"
 
 function Write-Info  { Write-Host "[mom] $args" -ForegroundColor Green }
 function Write-Warn  { Write-Host "[mom] $args" -ForegroundColor Yellow }

@@ -2,9 +2,9 @@
 # install.sh — install mom programming language on Linux / macOS
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/jagadeesh32/mom/main/scripts/install.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/jagadeesh32/mom/main/scripts/install.sh | bash -s -- --version v0.2.0
-#   curl -fsSL https://raw.githubusercontent.com/jagadeesh32/mom/main/scripts/install.sh | bash -s -- --prefix ~/.local
+#   curl -fsSL https://raw.githubusercontent.com/jagadeesh32/mom-lang/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/jagadeesh32/mom-lang/main/scripts/install.sh | bash -s -- --version v0.2.0
+#   curl -fsSL https://raw.githubusercontent.com/jagadeesh32/mom-lang/main/scripts/install.sh | bash -s -- --prefix ~/.local
 #
 # Options:
 #   --version VERSION   Install a specific version (default: latest)
@@ -23,7 +23,7 @@
 set -euo pipefail
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-REPO="jagadeesh32/mom"
+REPO="jagadeesh32/mom-lang"
 INSTALL_PREFIX="${HOME}/.local"
 INSTALL_VERSION="latest"
 MODIFY_PATH=true
