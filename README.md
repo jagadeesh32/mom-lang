@@ -33,6 +33,7 @@ fn main():
 - [CLI Reference](#cli-reference)
 - [Standard Library](#standard-library)
 - [Repository Layout](#repository-layout)
+- [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -301,9 +302,20 @@ mom build fib.mom -o fib
 | Formatter | ✅ |
 | Linter | ✅ |
 | Package manager (`mom pkg`) | ✅ |
-| Multi-threaded async runtime | 🔜 |
-| LLVM backend | 🔜 |
-| Full generics monomorphization | 🔜 |
+| Structs + field assignment (native) | ✅ |
+| Enums + match with nested patterns (native) | ✅ |
+| String literals (native) | ✅ |
+| Build cache with compiler identity | ✅ |
+| `block:` scoped expression | ✅ |
+| Native lists + `for x in list` | 🔜 Phase 3.1 |
+| Multi-threaded async runtime | 🔜 Phase 3.1 |
+| Supervision trees | 🔜 Phase 3.2 |
+| Full self-host (Stage-2) | 🔜 Phase 4 |
+| Full generics monomorphization | 🔜 Phase 4 |
+| LLVM backend | 🔜 Phase 5 |
+| WebAssembly target | 🔜 Phase 5 |
+| Package registry | 🔜 Phase 7 |
+| Mom 1.0 stable | 🔜 Phase 8 |
 
 ---
 
@@ -390,6 +402,33 @@ The standard library is in the `std/` directory:
 ├── scripts/                # install.sh, install.ps1
 └── .github/workflows/      # CI + release pipeline
 ```
+
+---
+
+## Roadmap
+
+Mom follows a phased delivery model. Each phase ships a demoable artifact and a regression test suite that locks the new capability in.
+
+| Phase | Goal | Status |
+|---|---|---|
+| **0** | Stage-0 toolchain (interpreter, CLI, LSP) | ✅ Shipped |
+| **1** | Native C backend — scalars, structs, enums, strings | ✅ Shipped `v0.3.0` |
+| **2** | Memory safety — borrow checker, `&T`/`&mut T`, regions | ✅ Shipped |
+| **3** | Concurrency — channels, actors, async/await (interpreter) | ✅ Shipped |
+| **3.1** | Native lists + real work-stealing async runtime | 🔜 Next |
+| **3.2** | Supervision trees, broadcast/oneshot channels | 🔜 |
+| **4** | Full self-host — Stage-2 compiles itself, generics monomorphization | 🔜 |
+| **5** | LLVM backend — auto-vectorization, DWARF debug, Wasm | 🔜 |
+| **6** | Full standard library — real I/O, net, crypto, serde | 🔜 |
+| **7** | Package ecosystem — registry, `mom pkg`, community packages | 🔜 |
+| **8** | Mom **1.0** stable — edition system, LTS, API stability guarantee | 🔜 |
+
+**Performance targets:**
+- Phase 3.1: 1M channel messages/sec on 4-core machine
+- Phase 5: ≥ 95% of Clang `-O3` on the Mom benchmark suite
+- Phase 5: HTTP server throughput ≥ Go's `net/http` on the same hardware
+
+For the full engineering plan with deliverables, acceptance criteria, and contributing opportunities, see [`docs/PHASES.md`](docs/PHASES.md).
 
 ---
 
