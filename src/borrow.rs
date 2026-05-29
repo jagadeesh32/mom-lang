@@ -272,12 +272,15 @@ impl BorrowChecker {
                 Ok(())
             }
             AssignTarget::Field { target, .. } => {
-                self.visit_expr(target)?;
+                // Assigning to a field reads (mutates in place) the base
+                // object — it does not move it, so the binding may still be
+                // used afterward.
+                self.visit_expr_internal(target, false)?;
                 Ok(())
             }
             AssignTarget::Index { target, index } => {
-                self.visit_expr(target)?;
-                self.visit_expr(index)?;
+                self.visit_expr_internal(target, false)?;
+                self.visit_expr_internal(index, false)?;
                 Ok(())
             }
         }
@@ -324,8 +327,12 @@ impl BorrowChecker {
             Expr::Ident(name, span) => self.use_ident(name, consume, span),
             Expr::Path(_, _) => Ok(()),
             Expr::List(items, _) => {
+                // List elements are conservatively treated as reads, not
+                // moves, until per-element ownership signatures arrive in
+                // Phase 2.1 — matches the relaxation already applied to
+                // struct-literal fields and function-call arguments.
                 for item in items {
-                    self.consume_expr_as_value(item)?;
+                    self.visit_expr_internal(item, false)?;
                 }
                 Ok(())
             }

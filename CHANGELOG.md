@@ -7,6 +7,50 @@ ships.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-05-29 — native structs, strings, enums & cache integrity
+
+### Stage-1.3 native backend widening (stage-0 C codegen)
+
+The native `mom build` C backend grew from a scalar-only subset to cover
+the core data model. All items below are validated end-to-end (compile →
+link → run) and against the interpreter:
+
+- **String literals** lower to C `const char*` (with correct re-escaping
+  of `\n`, `\t`, `"`, `\\`, control chars) and print via `mom_print_str`.
+- **Structs** lower to plain C structs: struct literals
+  (`Point { x: 1, y: 2 }`, fields matched by name regardless of order),
+  field access (`o.inner.v`), and field assignment (`c.n = c.n + 1`).
+- **Enums + `match`** lower to C tagged unions, supporting payload-carrying
+  and nullary variants, value-form and statement-form `match`, and
+  variant constructors.
+- **Nested & literal sub-patterns** inside enum patterns
+  (`Wrap(A(n))`, `Val(0)`) lower to short-circuiting tag/value guards via
+  a recursive pattern matcher.
+- Struct and enum types may reference one another in any declaration
+  order; types are emitted in source order so value-embedded types are
+  complete at first use.
+
+### Surface language (stage-0)
+
+- **Match-arm assignment bodies**: `Some(Add(n)) => count = count + n` now
+  parses (assignment lowered to a single-statement block expression),
+  unblocking state-machine-style `match`.
+- **`block:` scoped expression**: a `block` opens a fresh lexical scope
+  (so a `&mut` borrow taken inside it ends at the block boundary) and
+  evaluates to its tail expression.
+
+### Bug fixes (stage-0)
+
+- **Build cache integrity**: the native build cache key now incorporates
+  the running compiler binary's identity (length + mtime, version
+  fallback). Previously a rebuilt compiler with new codegen could serve a
+  stale binary from `target/mom-cache/` for an unchanged source.
+- **Borrow checker false moves**: values used inside a list literal
+  (`[a, identity(a)]`) and the base of a field/index assignment
+  (`c.n = ...`) are now treated as reads, not moves — matching the
+  relaxation already applied to struct-literal fields and call arguments.
+  Genuine use-after-move via rebinding is still rejected.
+
 ### Stage-1.2 mom-in-mom compiler widening
 
 - **String type** in stage-1: string literals, `String`/`Str` type name,

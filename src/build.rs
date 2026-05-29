@@ -7,6 +7,8 @@
 //! Output binaries are cached in `target/mom-cache/<hash>/` keyed by:
 //!     - the source content
 //!     - the compiler version
+//!     - the running compiler binary's identity (so a rebuilt compiler
+//!       with new codegen invalidates stale cache entries)
 //!     - the chosen C compiler name
 //!     - opt-level
 //!
@@ -80,6 +82,7 @@ pub fn build(options: &BuildOptions) -> LangResult<BuildReport> {
         &runtime_c_bytes,
         &options.c_compiler,
         options.optimize,
+        &compiler_identity(),
     );
 
     let cache_entry = options.cache_dir.join(&key);
@@ -157,15 +160,53 @@ pub fn build(options: &BuildOptions) -> LangResult<BuildReport> {
     })
 }
 
-fn build_key(source: &str, runtime: &[u8], cc: &str, optimize: bool) -> String {
+fn build_key(
+    source: &str,
+    runtime: &[u8],
+    cc: &str,
+    optimize: bool,
+    compiler_identity: &str,
+) -> String {
     let mut hasher = Hasher64::new();
-    hasher.write(b"mom-build/v1");
+    hasher.write(b"mom-build/v2");
     hasher.write(env!("CARGO_PKG_VERSION").as_bytes());
+    // Identity of the running compiler binary. Without this a rebuilt
+    // compiler (new codegen, same source) would serve a stale binary
+    // from the cache. See `compiler_identity`.
+    hasher.write(compiler_identity.as_bytes());
     hasher.write(cc.as_bytes());
     hasher.write(if optimize { b"O2" } else { b"O0" });
     hasher.write(source.as_bytes());
     hasher.write(runtime);
     format!("{:016x}", hasher.finish())
+}
+
+/// A string that uniquely identifies the running compiler binary so that
+/// rebuilding the compiler invalidates stale cache entries produced by the
+/// old codegen.
+///
+/// Preferred: the current executable's file length + modified time, which
+/// changes whenever the binary is recompiled but stays stable for repeated
+/// builds with the same binary (so the cache still hits). If `current_exe()`
+/// or its metadata is unavailable, fall back to the crate version.
+fn compiler_identity() -> String {
+    let fallback = || format!("ver:{}", env!("CARGO_PKG_VERSION"));
+    let exe = match env::current_exe() {
+        Ok(p) => p,
+        Err(_) => return fallback(),
+    };
+    let meta = match fs::metadata(&exe) {
+        Ok(m) => m,
+        Err(_) => return fallback(),
+    };
+    let len = meta.len();
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("exe:{len}:{mtime}")
 }
 
 fn copy_file(src: &Path, dst: &Path) -> LangResult<()> {
@@ -248,5 +289,35 @@ impl Hasher64 {
     }
     fn finish(self) -> u64 {
         self.state
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn key_changes_with_compiler_identity() {
+        // Same source/runtime/cc/opt, different compiler identity → the
+        // cache key must differ so a rebuilt compiler can't serve a stale
+        // binary. Two synthetic identities stand in for "old" vs "new"
+        // compiler binaries.
+        let src = "fn main() { print(1) }";
+        let runtime = b"runtime-bytes";
+        let old = build_key(src, runtime, "cc", false, "exe:100:111");
+        let new = build_key(src, runtime, "cc", false, "exe:200:222");
+        assert_ne!(old, new, "key must change when compiler identity changes");
+
+        // ...and stay stable for the same identity, so repeated builds with
+        // the SAME compiler still hit the cache.
+        let again = build_key(src, runtime, "cc", false, "exe:100:111");
+        assert_eq!(old, again, "key must be deterministic for one compiler");
+    }
+
+    #[test]
+    fn compiler_identity_is_deterministic() {
+        // Whatever strategy is used, calling it twice in one process must
+        // yield the same value (same binary on disk).
+        assert_eq!(compiler_identity(), compiler_identity());
     }
 }

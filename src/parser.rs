@@ -1119,6 +1119,15 @@ impl Parser {
             TokenKind::Float(value) => Ok(Expr::Float(value, token.span)),
             TokenKind::String(value) => Ok(Expr::String(value, token.span)),
             TokenKind::Ident(name) => {
+                // `block:` / `block { ... }` — a scoped block expression that
+                // opens a fresh lexical scope (so borrows inside it end at the
+                // block boundary) and evaluates to its tail expression.
+                if name == "block"
+                    && (self.check_kind(&TokenKind::Colon)
+                        || self.check_kind(&TokenKind::LeftBrace))
+                {
+                    return Ok(Expr::Block(self.parse_block()?));
+                }
                 // struct literal: Name { field: value, ... }
                 if allow_struct_lit
                     && self.check_kind(&TokenKind::LeftBrace)
@@ -1375,7 +1384,25 @@ impl Parser {
             let arm_span = self.peek().span.clone();
             let pattern = self.parse_pattern()?;
             self.expect_kind(&TokenKind::FatArrow, "expected '=>' in match arm")?;
-            let body = self.parse_expression(0)?;
+            let body_span = self.peek().span.clone();
+            let expr = self.parse_expression(0)?;
+            // A match arm body may be an assignment (`Some(x) => count = count + 1`).
+            // Assignment is a statement, not an expression, so wrap it in a
+            // single-statement block expression to keep `MatchArm.body: Expr`.
+            let body = if self.match_kind(&TokenKind::Equal) {
+                let target = self.expr_to_assign_target(expr, &body_span)?;
+                let value = self.parse_expression(0)?;
+                Expr::Block(Block {
+                    statements: vec![Stmt::Assign {
+                        target,
+                        value,
+                        span: body_span.clone(),
+                    }],
+                    span: body_span,
+                })
+            } else {
+                expr
+            };
             arms.push(MatchArm {
                 pattern,
                 body,

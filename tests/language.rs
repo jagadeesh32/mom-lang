@@ -78,6 +78,107 @@ fn runs_match_and_pipeline() {
 }
 
 #[test]
+fn runs_match_arm_assignment_body() {
+    // Regression: a match arm body may be an assignment statement
+    // (`Some(Add(n)) => count = count + n`), not just an expression.
+    let output = run_source(
+        r#"
+        enum Msg {
+            Inc
+            Add(Int)
+            Stop
+        }
+
+        fn main() {
+            let mut count = 0
+            let mut running = true
+            let msgs = [Add(5), Inc, Stop]
+            for m in msgs {
+                if running {
+                    match m {
+                        Inc      => count = count + 1,
+                        Add(n)   => count = count + n,
+                        Stop     => running = false,
+                    }
+                }
+            }
+            print(count)
+        }
+        "#,
+    )
+    .unwrap();
+    assert_eq!(output, "6\n");
+}
+
+#[test]
+fn runs_nested_constructor_patterns() {
+    // A constructor pattern may be nested inside another (`Some(Add(n))`).
+    let output = run_source(
+        r#"
+        enum Cmd {
+            Add(Int)
+            Stop
+        }
+
+        fn run(x: Option[Cmd]) -> Int {
+            match x {
+                Some(Add(n)) => n,
+                Some(Stop)   => -1,
+                None         => 0,
+            }
+        }
+
+        fn main() {
+            print(run(Some(Add(9))))
+            print(run(Some(Stop)))
+            print(run(None))
+        }
+        "#,
+    )
+    .unwrap();
+    assert_eq!(output, "9\n-1\n0\n");
+}
+
+#[test]
+fn runs_scoped_block_expression() {
+    // `block:` opens a fresh scope and evaluates to its tail expression.
+    let output = run_source(
+        r#"
+        fn main() {
+            let x = block {
+                let a = 10
+                a + 5
+            }
+            print(x)
+        }
+        "#,
+    )
+    .unwrap();
+    assert_eq!(output, "15\n");
+}
+
+#[test]
+fn scoped_block_ends_borrow() {
+    // A `&mut` borrow taken inside a `block` must end at the block boundary,
+    // so the binding can be mutated afterward.
+    let output = run_source(
+        r#"
+        fn main() {
+            let mut counter = 0
+            block {
+                let m = &mut counter
+                print(m)
+            }
+            counter = counter + 1
+            print(counter)
+        }
+        "#,
+    )
+    .unwrap();
+    assert_eq!(output, "0\n1\n");
+}
+
+#[test]
 fn runs_lambdas() {
     let output = run_source(
         r#"

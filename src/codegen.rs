@@ -5,19 +5,27 @@
 //! host C compiler (`cc`, configurable via `$CC`).
 //!
 //! Supported in Phase 1:
-//!     - Int (`int64_t`), Bool (`bool`), Unit (`void`)
+//!     - Int (`int64_t`), Bool (`bool`), Float (`double`), Unit (`void`),
+//!       String (`const char*`)
+//!     - User-defined structs (lowered to plain C structs) with struct
+//!       literals and field access
+//!     - User-defined enums (lowered to C tagged unions) + `match`
+//!       (value- and statement-form), including payload-carrying and
+//!       nullary variants, and nested / literal sub-patterns
+//!       (`Wrap(A(n))`, `Val(0)`)
 //!     - Top-level functions, parameters, return types of supported types
 //!     - `let`, `let mut`, assignment
 //!     - Arithmetic, comparison, logical operators
-//!     - if-expression, while, `for x in 0..N`, break, continue, return
+//!     - if-expression, block expression, while, `for x in 0..N`,
+//!       break, continue, return
 //!     - Pipeline `x |> f(args)`
-//!     - `print(value)` for Int / Bool / Unit
+//!     - `print(value)` for Int / Bool / Float / Unit / String
 //!     - Recursive calls
 //!
 //! Out of scope for Phase 1 codegen (emits a clear diagnostic):
-//!     Float, String, List, Struct, Enum, Variant, MethodCall, Field,
-//!     Index, StructLit, Lambda, Match, Try, Spawn, Await.
-//! These ship in Phase 1.3 alongside the LLVM backend.
+//!     List, Dict, indexing, MethodCall, Lambda, Try, Spawn, Await,
+//!     references; generic structs/enums; printing an enum or struct value
+//!     directly. These ship alongside the LLVM backend.
 
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -37,52 +45,47 @@ enum CType {
     Bool,
     Float,
     Unit,
+    /// A string, lowered to a C `const char*` literal/value.
+    String,
+    /// A user-defined enum, identified by its index in `Codegen::enums`.
+    Enum(usize),
+    /// A user-defined struct, identified by its index in `Codegen::structs`.
+    Struct(usize),
 }
 
 impl CType {
-    fn c_repr(self) -> &'static str {
+    /// Scalar C spelling. Enums and structs are spelled via
+    /// `Codegen::c_type_name` because their name lives in a codegen table.
+    fn scalar_repr(self) -> Option<&'static str> {
         match self {
-            CType::Int => "int64_t",
-            CType::Bool => "bool",
-            CType::Float => "double",
-            CType::Unit => "void",
+            CType::Int => Some("int64_t"),
+            CType::Bool => Some("bool"),
+            CType::Float => Some("double"),
+            CType::Unit => Some("void"),
+            CType::String => Some("const char*"),
+            CType::Enum(_) | CType::Struct(_) => None,
         }
     }
 }
 
-fn ctype_from_ref(ty: &TypeRef, span: &Span) -> LangResult<CType> {
-    match ty {
-        TypeRef::Named(name) => match name.as_str() {
-            "Int" => Ok(CType::Int),
-            "Bool" => Ok(CType::Bool),
-            "Float" => Ok(CType::Float),
-            _ => Err(unsupported(
-                format!("native codegen does not yet support type '{name}'"),
-                span,
-            )),
-        },
-        TypeRef::Unit => Ok(CType::Unit),
-        TypeRef::Infer => Err(unsupported(
-            "native codegen needs an explicit type annotation here",
-            span,
-        )),
-        TypeRef::Generic(name, _) => Err(unsupported(
-            format!("native codegen does not yet support generic type '{name}[…]'"),
-            span,
-        )),
-        TypeRef::Function(_, _) => Err(unsupported(
-            "native codegen does not yet support function-typed values",
-            span,
-        )),
-        TypeRef::List(_) => Err(unsupported(
-            "native codegen does not yet support list types",
-            span,
-        )),
-        TypeRef::Ref(_, _) => Err(unsupported(
-            "native codegen does not yet emit reference types — coming in Phase 2.1",
-            span,
-        )),
-    }
+/// Layout of a user-defined struct lowered to a plain C struct.
+#[derive(Debug, Clone)]
+struct StructLayout {
+    name: String,
+    fields: Vec<(String, CType)>,
+}
+
+/// Layout of a user-defined enum lowered to a C tagged union.
+#[derive(Debug, Clone)]
+struct EnumLayout {
+    name: String,
+    variants: Vec<VariantLayout>,
+}
+
+#[derive(Debug, Clone)]
+struct VariantLayout {
+    name: String,
+    payload: Vec<CType>,
 }
 
 #[derive(Debug, Clone)]
@@ -95,6 +98,16 @@ pub struct Codegen {
     out: String,
     locals: Vec<HashMap<String, CType>>,
     functions: HashMap<String, FnSig>,
+    /// Tagged-union layouts for user-defined enums.
+    enums: Vec<EnumLayout>,
+    /// enum name → index into `enums`.
+    enum_index: HashMap<String, usize>,
+    /// variant name → (enum index, variant index).
+    variant_index: HashMap<String, (usize, usize)>,
+    /// Plain-struct layouts for user-defined structs.
+    structs: Vec<StructLayout>,
+    /// struct name → index into `structs`.
+    struct_index: HashMap<String, usize>,
     temp_counter: usize,
     indent: usize,
 }
@@ -105,12 +118,24 @@ impl Codegen {
             out: String::new(),
             locals: vec![HashMap::new()],
             functions: HashMap::new(),
+            enums: Vec::new(),
+            enum_index: HashMap::new(),
+            variant_index: HashMap::new(),
+            structs: Vec::new(),
+            struct_index: HashMap::new(),
             temp_counter: 0,
             indent: 0,
         }
     }
 
     pub fn emit_program(mut self, program: &Program) -> LangResult<CodegenOutput> {
+        // User types must be collected before function signatures so that
+        // parameter, return, field, and payload types can resolve names.
+        // Names are registered first (both enums and structs) so the two
+        // kinds may reference each other in any declaration order.
+        self.register_type_names(&program.items)?;
+        self.resolve_enum_payloads(&program.items)?;
+        self.resolve_struct_fields(&program.items)?;
         self.collect_function_signatures(&program.items)?;
 
         if !self.functions.contains_key("main") {
@@ -126,6 +151,10 @@ impl Codegen {
         .unwrap();
         writeln!(self.out, "#include \"runtime.h\"").unwrap();
         writeln!(self.out).unwrap();
+
+        // Struct and enum type declarations, emitted in source order so a
+        // type embedded by value in a later type is already complete.
+        self.emit_type_decls(&program.items);
 
         // Forward declarations
         for item in &program.items {
@@ -164,22 +193,237 @@ impl Codegen {
                 Item::Import(_) | Item::Trait(_) | Item::Impl(_) | Item::Extern(_) => {
                     // silently accepted; emits no code in Phase 1.
                 }
-                Item::Struct(decl) => {
-                    return Err(unsupported(
-                        format!("native codegen does not yet support struct '{}'", decl.name),
-                        &decl.span,
-                    ));
-                }
-                Item::Enum(decl) => {
-                    return Err(unsupported(
-                        format!("native codegen does not yet support enum '{}'", decl.name),
-                        &decl.span,
-                    ));
-                }
+                // Struct and enum type declarations were emitted up front by
+                // `emit_type_decls`; nothing more to do here.
+                Item::Struct(_) | Item::Enum(_) => {}
             }
         }
 
         Ok(CodegenOutput { c_source: self.out })
+    }
+
+    /// Pre-pass phase 1: register every enum and struct *name* with a
+    /// placeholder layout, so enums and structs may reference one another in
+    /// any declaration order before their members are resolved.
+    fn register_type_names(&mut self, items: &[Item]) -> LangResult<()> {
+        for item in items {
+            match item {
+                Item::Enum(decl) => {
+                    if !decl.generics.is_empty() {
+                        return Err(unsupported(
+                            format!(
+                                "native codegen does not yet monomorphize generic enum '{}'",
+                                decl.name
+                            ),
+                            &decl.span,
+                        ));
+                    }
+                    if self.enum_index.contains_key(&decl.name)
+                        || self.struct_index.contains_key(&decl.name)
+                    {
+                        return Err(codegen_error(
+                            format!("duplicate type '{}'", decl.name),
+                            &decl.span,
+                        ));
+                    }
+                    let idx = self.enums.len();
+                    self.enum_index.insert(decl.name.clone(), idx);
+                    self.enums.push(EnumLayout {
+                        name: decl.name.clone(),
+                        variants: Vec::new(),
+                    });
+                }
+                Item::Struct(decl) => {
+                    if !decl.generics.is_empty() {
+                        return Err(unsupported(
+                            format!(
+                                "native codegen does not yet monomorphize generic struct '{}'",
+                                decl.name
+                            ),
+                            &decl.span,
+                        ));
+                    }
+                    if self.enum_index.contains_key(&decl.name)
+                        || self.struct_index.contains_key(&decl.name)
+                    {
+                        return Err(codegen_error(
+                            format!("duplicate type '{}'", decl.name),
+                            &decl.span,
+                        ));
+                    }
+                    let idx = self.structs.len();
+                    self.struct_index.insert(decl.name.clone(), idx);
+                    self.structs.push(StructLayout {
+                        name: decl.name.clone(),
+                        fields: Vec::new(),
+                    });
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// Pre-pass phase 2a: resolve enum variant payloads and register variants.
+    fn resolve_enum_payloads(&mut self, items: &[Item]) -> LangResult<()> {
+        for item in items {
+            if let Item::Enum(decl) = item {
+                let enum_idx = self.enum_index[&decl.name];
+                let mut variants = Vec::with_capacity(decl.variants.len());
+                for (vidx, variant) in decl.variants.iter().enumerate() {
+                    if let Some((prev, _)) = self.variant_index.get(&variant.name) {
+                        return Err(unsupported(
+                            format!(
+                                "native codegen: variant '{}' is declared in both '{}' and '{}' \
+                                 — duplicate variant names across enums are not yet supported",
+                                variant.name, self.enums[*prev].name, decl.name
+                            ),
+                            &decl.span,
+                        ));
+                    }
+                    let mut payload = Vec::with_capacity(variant.payload.len());
+                    for ty in &variant.payload {
+                        payload.push(self.ctype_from_ref(ty, &decl.span)?);
+                    }
+                    self.variant_index
+                        .insert(variant.name.clone(), (enum_idx, vidx));
+                    variants.push(VariantLayout {
+                        name: variant.name.clone(),
+                        payload,
+                    });
+                }
+                self.enums[enum_idx].variants = variants;
+            }
+        }
+        Ok(())
+    }
+
+    /// Pre-pass phase 2b: resolve struct field types.
+    fn resolve_struct_fields(&mut self, items: &[Item]) -> LangResult<()> {
+        for item in items {
+            if let Item::Struct(decl) = item {
+                let struct_idx = self.struct_index[&decl.name];
+                let mut fields = Vec::with_capacity(decl.fields.len());
+                for field in &decl.fields {
+                    let fty = self.ctype_from_ref(&field.ty, &decl.span)?;
+                    fields.push((field.name.clone(), fty));
+                }
+                self.structs[struct_idx].fields = fields;
+            }
+        }
+        Ok(())
+    }
+
+    /// Resolve an AST type reference to a `CType`, recognising enum names.
+    fn ctype_from_ref(&self, ty: &TypeRef, span: &Span) -> LangResult<CType> {
+        match ty {
+            TypeRef::Named(name) => match name.as_str() {
+                "Int" => Ok(CType::Int),
+                "Bool" => Ok(CType::Bool),
+                "Float" => Ok(CType::Float),
+                "String" => Ok(CType::String),
+                _ => {
+                    if let Some(&idx) = self.enum_index.get(name) {
+                        Ok(CType::Enum(idx))
+                    } else if let Some(&idx) = self.struct_index.get(name) {
+                        Ok(CType::Struct(idx))
+                    } else {
+                        Err(unsupported(
+                            format!("native codegen does not yet support type '{name}'"),
+                            span,
+                        ))
+                    }
+                }
+            },
+            TypeRef::Unit => Ok(CType::Unit),
+            TypeRef::Infer => Err(unsupported(
+                "native codegen needs an explicit type annotation here",
+                span,
+            )),
+            TypeRef::Generic(name, _) => Err(unsupported(
+                format!("native codegen does not yet support generic type '{name}[…]'"),
+                span,
+            )),
+            TypeRef::Function(_, _) => Err(unsupported(
+                "native codegen does not yet support function-typed values",
+                span,
+            )),
+            TypeRef::List(_) => Err(unsupported(
+                "native codegen does not yet support list types",
+                span,
+            )),
+            TypeRef::Ref(_, _) => Err(unsupported(
+                "native codegen does not yet emit reference types — coming in Phase 2.1",
+                span,
+            )),
+        }
+    }
+
+    /// C spelling of a type, including user-defined enum and struct names.
+    fn c_type_name(&self, ty: CType) -> String {
+        match ty {
+            CType::Enum(idx) => self.enums[idx].name.clone(),
+            CType::Struct(idx) => self.structs[idx].name.clone(),
+            other => other.scalar_repr().unwrap().to_string(),
+        }
+    }
+
+    /// Emit the C `typedef struct` for every collected struct and enum, in
+    /// source order, so a value-embedded type is fully defined before use.
+    fn emit_type_decls(&mut self, items: &[Item]) {
+        for item in items {
+            match item {
+                Item::Struct(decl) => {
+                    let idx = self.struct_index[&decl.name];
+                    self.emit_one_struct_decl(idx);
+                }
+                Item::Enum(decl) => {
+                    let idx = self.enum_index[&decl.name];
+                    self.emit_one_enum_decl(idx);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn emit_one_struct_decl(&mut self, idx: usize) {
+        let layout = self.structs[idx].clone();
+        writeln!(self.out, "typedef struct {{").unwrap();
+        if layout.fields.is_empty() {
+            // C forbids empty structs; give it a placeholder member.
+            writeln!(self.out, "    char __mom_unit;").unwrap();
+        }
+        for (fname, fty) in &layout.fields {
+            let tn = self.c_type_name(*fty);
+            writeln!(self.out, "    {} {};", tn, fname).unwrap();
+        }
+        writeln!(self.out, "}} {};", layout.name).unwrap();
+        writeln!(self.out).unwrap();
+    }
+
+    /// Emit the C tagged-union `typedef` for one collected enum.
+    fn emit_one_enum_decl(&mut self, idx: usize) {
+        let layout = self.enums[idx].clone();
+        let has_payload = layout.variants.iter().any(|v| !v.payload.is_empty());
+        writeln!(self.out, "typedef struct {{").unwrap();
+        writeln!(self.out, "    int32_t tag;").unwrap();
+        if has_payload {
+            writeln!(self.out, "    union {{").unwrap();
+            for variant in &layout.variants {
+                if variant.payload.is_empty() {
+                    continue;
+                }
+                write!(self.out, "        struct {{ ").unwrap();
+                for (i, fty) in variant.payload.iter().enumerate() {
+                    let tn = self.c_type_name(*fty);
+                    write!(self.out, "{} f{}; ", tn, i).unwrap();
+                }
+                writeln!(self.out, "}} {};", variant.name).unwrap();
+            }
+            writeln!(self.out, "    }} as;").unwrap();
+        }
+        writeln!(self.out, "}} {};", layout.name).unwrap();
+        writeln!(self.out).unwrap();
     }
 
     fn collect_function_signatures(&mut self, items: &[Item]) -> LangResult<()> {
@@ -187,12 +431,10 @@ impl Codegen {
             if let Item::Function(function) = item {
                 let mut params = Vec::with_capacity(function.params.len());
                 for param in &function.params {
-                    params.push((
-                        param.name.clone(),
-                        ctype_from_ref(&param.ty, &function.span)?,
-                    ));
+                    let pty = self.ctype_from_ref(&param.ty, &function.span)?;
+                    params.push((param.name.clone(), pty));
                 }
-                let return_ty = ctype_from_ref(&function.return_type, &function.span)?;
+                let return_ty = self.ctype_from_ref(&function.return_type, &function.span)?;
                 self.functions
                     .insert(function.name.clone(), FnSig { params, return_ty });
             }
@@ -251,7 +493,8 @@ impl Codegen {
     }
 
     fn write_signature(&mut self, name: &str, sig: &FnSig) -> LangResult<()> {
-        write!(self.out, "{} {}(", sig.return_ty.c_repr(), c_ident(name)).unwrap();
+        let ret = self.c_type_name(sig.return_ty);
+        write!(self.out, "{} {}(", ret, c_ident(name)).unwrap();
         if sig.params.is_empty() {
             write!(self.out, "void").unwrap();
         } else {
@@ -259,7 +502,8 @@ impl Codegen {
                 if i > 0 {
                     write!(self.out, ", ").unwrap();
                 }
-                write!(self.out, "{} {}", ty.c_repr(), c_ident(pname)).unwrap();
+                let tn = self.c_type_name(*ty);
+                write!(self.out, "{} {}", tn, c_ident(pname)).unwrap();
             }
         }
         write!(self.out, ")").unwrap();
@@ -293,7 +537,7 @@ impl Codegen {
             } => {
                 let (value_src, value_ty) = self.emit_expr_value(value)?;
                 let declared_ty = match ty {
-                    Some(t) => ctype_from_ref(t, span)?,
+                    Some(t) => self.ctype_from_ref(t, span)?,
                     None => value_ty,
                 };
                 if declared_ty != value_ty {
@@ -305,14 +549,8 @@ impl Codegen {
                     ));
                 }
                 self.indent_line();
-                writeln!(
-                    self.out,
-                    "{} {} = {};",
-                    declared_ty.c_repr(),
-                    c_ident(name),
-                    value_src
-                )
-                .unwrap();
+                let decl_tn = self.c_type_name(declared_ty);
+                writeln!(self.out, "{} {} = {};", decl_tn, c_ident(name), value_src).unwrap();
                 self.declare_local(name, declared_ty)?;
                 Ok(CType::Unit)
             }
@@ -338,8 +576,48 @@ impl Codegen {
                     writeln!(self.out, "{} = {};", c_ident(name), value_src).unwrap();
                     Ok(CType::Unit)
                 }
-                AssignTarget::Field { .. } | AssignTarget::Index { .. } => Err(unsupported(
-                    "native codegen does not yet support compound assignment targets",
+                AssignTarget::Field { target: obj, name } => {
+                    // Struct field assignment: `obj.field = value`.
+                    let (obj_src, obj_ty) = self.emit_expr_value(obj)?;
+                    let struct_idx = match obj_ty {
+                        CType::Struct(idx) => idx,
+                        _ => {
+                            return Err(unsupported(
+                                "native codegen: field assignment is only supported on structs",
+                                span,
+                            ));
+                        }
+                    };
+                    let field_ty = self.structs[struct_idx]
+                        .fields
+                        .iter()
+                        .find(|(n, _)| n == name)
+                        .map(|(_, t)| *t)
+                        .ok_or_else(|| {
+                            codegen_error(
+                                format!(
+                                    "struct '{}' has no field '{}'",
+                                    self.structs[struct_idx].name, name
+                                ),
+                                span,
+                            )
+                        })?;
+                    let (value_src, value_ty) = self.emit_expr_value(value)?;
+                    if value_ty != field_ty {
+                        return Err(unsupported(
+                            format!(
+                                "native codegen: assigning {value_ty:?} to field '{name}' of type \
+                                 {field_ty:?}"
+                            ),
+                            span,
+                        ));
+                    }
+                    self.indent_line();
+                    writeln!(self.out, "({}).{} = {};", obj_src, name, value_src).unwrap();
+                    Ok(CType::Unit)
+                }
+                AssignTarget::Index { .. } => Err(unsupported(
+                    "native codegen does not yet support indexed assignment targets",
                     span,
                 )),
             },
@@ -509,13 +787,13 @@ impl Codegen {
                 }
                 Ok((format!("((double){rendered})"), CType::Float))
             }
-            Expr::String(_, span) => Err(unsupported(
-                "native codegen does not yet support String literals",
-                span,
-            )),
+            Expr::String(value, _) => Ok((format!("\"{}\"", c_escape_str(value)), CType::String)),
             Expr::Ident(name, span) => {
                 if let Some(ty) = self.lookup_local(name) {
                     Ok((c_ident(name), ty))
+                } else if let Some(&(enum_idx, variant_idx)) = self.variant_index.get(name) {
+                    // Nullary enum variant used as a value, e.g. `Stop`.
+                    self.emit_variant_construct(enum_idx, variant_idx, &[], span)
                 } else if self.functions.contains_key(name) {
                     Err(unsupported(
                         format!("native codegen does not yet support passing function '{name}' as a value"),
@@ -565,21 +843,22 @@ impl Codegen {
                 "native codegen: ranges are only valid as the iterator of a for-in loop",
                 span,
             )),
-            Expr::Match { span, .. } => Err(unsupported(
-                "native codegen does not yet support `match`",
+            Expr::Match {
+                scrutinee,
+                arms,
                 span,
-            )),
+            } => self.emit_match(scrutinee, arms, span),
             Expr::Lambda { span, .. } => Err(unsupported(
                 "native codegen does not yet support lambdas",
                 span,
             )),
+            Expr::StructLit { name, fields, span } => self.emit_struct_lit(name, fields, span),
+            Expr::Field { target, name, span } => self.emit_field_access(target, name, span),
             Expr::Dict(_, span)
             | Expr::List(_, span)
             | Expr::Index { span, .. }
-            | Expr::Field { span, .. }
-            | Expr::MethodCall { span, .. }
-            | Expr::StructLit { span, .. } => Err(unsupported(
-                "native codegen does not yet support data structures (lists / structs / fields)",
+            | Expr::MethodCall { span, .. } => Err(unsupported(
+                "native codegen does not yet support data structures (lists / dicts / indexing)",
                 span,
             )),
             Expr::Try { span, .. } | Expr::Spawn { span, .. } | Expr::Await { span, .. } => {
@@ -734,10 +1013,23 @@ impl Codegen {
                 CType::Bool => "mom_print_bool",
                 CType::Float => "mom_print_float",
                 CType::Unit => "mom_print_unit",
+                CType::String => "mom_print_str",
+                CType::Enum(_) | CType::Struct(_) => {
+                    return Err(unsupported(
+                        "native codegen cannot print an enum or struct value directly yet; \
+                         `match` on it or print a field",
+                        &args[0].span(),
+                    ));
+                }
             };
             // print() is a statement, not a value — return the empty
             // sentinel so emit_stmt skips emitting a trailing `;`.
             return Ok((format!("{helper}({arg_src})"), CType::Unit));
+        }
+
+        // Enum variant constructor with payload, e.g. `Add(5)`.
+        if let Some(&(enum_idx, variant_idx)) = self.variant_index.get(&name) {
+            return self.emit_variant_construct(enum_idx, variant_idx, args, span);
         }
 
         // User-defined function call.
@@ -773,6 +1065,394 @@ impl Codegen {
         }
         let call = format!("{}({})", c_ident(&name), arg_srcs.join(", "));
         Ok((call, sig.return_ty))
+    }
+
+    /// Emit a C compound literal that constructs an enum variant value.
+    fn emit_variant_construct(
+        &mut self,
+        enum_idx: usize,
+        variant_idx: usize,
+        args: &[Expr],
+        span: &Span,
+    ) -> LangResult<(String, CType)> {
+        let layout = self.enums[enum_idx].clone();
+        let variant = &layout.variants[variant_idx];
+        if args.len() != variant.payload.len() {
+            return Err(codegen_error(
+                format!(
+                    "enum variant '{}' expects {} field(s), got {}",
+                    variant.name,
+                    variant.payload.len(),
+                    args.len()
+                ),
+                span,
+            ));
+        }
+        let mut field_srcs = Vec::with_capacity(args.len());
+        for (arg, expected) in args.iter().zip(variant.payload.iter()) {
+            let (src, ty) = self.emit_expr_value(arg)?;
+            if ty != *expected {
+                return Err(unsupported(
+                    format!(
+                        "native codegen: field of '{}' has type {:?}, expected {:?}",
+                        variant.name, ty, expected
+                    ),
+                    &arg.span(),
+                ));
+            }
+            field_srcs.push(src);
+        }
+        let src = if field_srcs.is_empty() {
+            format!("(({}){{ .tag = {} }})", layout.name, variant_idx)
+        } else {
+            format!(
+                "(({}){{ .tag = {}, .as.{} = {{ {} }} }})",
+                layout.name,
+                variant_idx,
+                variant.name,
+                field_srcs.join(", ")
+            )
+        };
+        Ok((src, CType::Enum(enum_idx)))
+    }
+
+    /// Emit a C compound literal constructing a struct value. Fields may be
+    /// written in any order; they are matched to the declaration by name.
+    fn emit_struct_lit(
+        &mut self,
+        name: &str,
+        fields: &[(String, Expr)],
+        span: &Span,
+    ) -> LangResult<(String, CType)> {
+        let struct_idx = *self.struct_index.get(name).ok_or_else(|| {
+            unsupported(
+                format!("native codegen does not yet support type '{name}'"),
+                span,
+            )
+        })?;
+        let layout = self.structs[struct_idx].clone();
+        if fields.len() != layout.fields.len() {
+            return Err(codegen_error(
+                format!(
+                    "struct '{}' has {} field(s) but {} were provided",
+                    name,
+                    layout.fields.len(),
+                    fields.len()
+                ),
+                span,
+            ));
+        }
+        // Emit initializers in declaration order regardless of literal order.
+        let mut inits = Vec::with_capacity(layout.fields.len());
+        for (fname, fty) in &layout.fields {
+            let (_, value) = fields.iter().find(|(n, _)| n == fname).ok_or_else(|| {
+                codegen_error(format!("missing field '{fname}' for struct '{name}'"), span)
+            })?;
+            let (src, ty) = self.emit_expr_value(value)?;
+            if ty != *fty {
+                return Err(unsupported(
+                    format!(
+                        "native codegen: field '{}' of '{}' has type {:?}, expected {:?}",
+                        fname, name, ty, fty
+                    ),
+                    &value.span(),
+                ));
+            }
+            inits.push(format!(".{} = {}", fname, src));
+        }
+        let src = format!("(({}){{ {} }})", layout.name, inits.join(", "));
+        Ok((src, CType::Struct(struct_idx)))
+    }
+
+    /// Emit a struct field read: `target.field`.
+    fn emit_field_access(
+        &mut self,
+        target: &Expr,
+        field: &str,
+        span: &Span,
+    ) -> LangResult<(String, CType)> {
+        let (target_src, target_ty) = self.emit_expr_value(target)?;
+        let struct_idx = match target_ty {
+            CType::Struct(idx) => idx,
+            _ => {
+                return Err(unsupported(
+                    "native codegen: field access is only supported on struct values",
+                    span,
+                ));
+            }
+        };
+        let layout = &self.structs[struct_idx];
+        let fty = layout
+            .fields
+            .iter()
+            .find(|(n, _)| n == field)
+            .map(|(_, t)| *t)
+            .ok_or_else(|| {
+                codegen_error(
+                    format!("struct '{}' has no field '{}'", layout.name, field),
+                    span,
+                )
+            })?;
+        Ok((format!("({}).{}", target_src, field), fty))
+    }
+
+    /// Lower a `match` on an enum to a C `if`/`else if` chain dispatching on
+    /// the tag. Arm bodies are captured so the result type can be discovered
+    /// before the (value-form) result temporary is declared.
+    fn emit_match(
+        &mut self,
+        scrutinee: &Expr,
+        arms: &[MatchArm],
+        span: &Span,
+    ) -> LangResult<(String, CType)> {
+        let (scrut_src, scrut_ty) = self.emit_expr_value(scrutinee)?;
+        if !matches!(scrut_ty, CType::Enum(_)) {
+            return Err(unsupported(
+                "native codegen: `match` is only supported on enum values",
+                span,
+            ));
+        }
+
+        // Evaluate the scrutinee once into a temp.
+        let scrut_tmp = self.fresh_temp();
+        let en = self.c_type_name(scrut_ty);
+        self.indent_line();
+        writeln!(self.out, "{} {} = {};", en, scrut_tmp, scrut_src).unwrap();
+
+        struct ArmCode {
+            // Boolean C guard expression; `None` for a catch-all arm.
+            guard: Option<String>,
+            code: String,
+            value: String,
+        }
+        let mut arm_codes: Vec<ArmCode> = Vec::new();
+        let mut result_ty: Option<CType> = None;
+
+        let base_indent = self.indent;
+        for arm in arms {
+            self.push_scope();
+            // Capture this arm's emitted body into its own buffer so we learn
+            // the value/type without committing to a position yet.
+            let saved = std::mem::take(&mut self.out);
+            self.indent = base_indent + 1;
+            let mut guards: Vec<String> = Vec::new();
+            self.emit_pattern_match(&arm.pattern, scrut_ty, &scrut_tmp, &mut guards)?;
+            let (value, ty) = self.emit_expr_value(&arm.body)?;
+            let code = std::mem::replace(&mut self.out, saved);
+            self.indent = base_indent;
+            self.pop_scope();
+
+            match result_ty {
+                None => result_ty = Some(ty),
+                Some(prev) if prev == ty => {}
+                Some(prev) => {
+                    return Err(unsupported(
+                        format!(
+                            "native codegen: match arms have mismatched types ({:?} vs {:?})",
+                            prev, ty
+                        ),
+                        &arm.body.span(),
+                    ));
+                }
+            }
+            let guard = if guards.is_empty() {
+                None
+            } else {
+                Some(guards.join(" && "))
+            };
+            arm_codes.push(ArmCode { guard, code, value });
+        }
+
+        let result_ty = result_ty.unwrap_or(CType::Unit);
+        let value_form = result_ty != CType::Unit;
+
+        let result_tmp = if value_form {
+            let tmp = self.fresh_temp();
+            let rt = self.c_type_name(result_ty);
+            self.indent_line();
+            writeln!(self.out, "{} {};", rt, tmp).unwrap();
+            Some(tmp)
+        } else {
+            None
+        };
+
+        for (i, arm) in arm_codes.iter().enumerate() {
+            self.indent_line();
+            match &arm.guard {
+                Some(guard) => {
+                    let kw = if i == 0 { "if" } else { "else if" };
+                    writeln!(self.out, "{} ({}) {{", kw, guard).unwrap();
+                }
+                None => {
+                    // catch-all
+                    if i == 0 {
+                        writeln!(self.out, "if (1) {{").unwrap();
+                    } else {
+                        writeln!(self.out, "else {{").unwrap();
+                    }
+                }
+            }
+            // Body code captured at base_indent + 1.
+            self.out.push_str(&arm.code);
+            self.indent += 1;
+            self.indent_line();
+            match &result_tmp {
+                Some(tmp) => writeln!(self.out, "{} = {};", tmp, arm.value).unwrap(),
+                None => writeln!(self.out, "{};", arm.value).unwrap(),
+            }
+            self.indent -= 1;
+            self.indent_line();
+            writeln!(self.out, "}}").unwrap();
+        }
+
+        match result_tmp {
+            Some(tmp) => Ok((tmp, result_ty)),
+            None => Ok(("/* match-stmt */ 0".to_string(), CType::Unit)),
+        }
+    }
+
+    /// Recursively lower a match-arm pattern against a value reachable via the
+    /// C lvalue expression `access` (whose mom type is `expected_ty`).
+    /// Boolean tests are pushed onto `guards` (joined with `&&`, so they
+    /// short-circuit outer-to-inner); variable bindings are emitted as `let`
+    /// declarations into the current output (the arm's captured buffer).
+    fn emit_pattern_match(
+        &mut self,
+        pattern: &Pattern,
+        expected_ty: CType,
+        access: &str,
+        guards: &mut Vec<String>,
+    ) -> LangResult<()> {
+        match pattern {
+            Pattern::Wildcard(_) => Ok(()),
+            Pattern::Ident(name, span) => {
+                // A bare identifier is a nullary-variant test (`Inc`) when it
+                // names a payload-free variant of the matched enum; otherwise
+                // it binds the value at `access`.
+                if let CType::Enum(eidx) = expected_ty {
+                    if let Some(&(veidx, vidx)) = self.variant_index.get(name) {
+                        if veidx == eidx && self.enums[eidx].variants[vidx].payload.is_empty() {
+                            guards.push(format!("{}.tag == {}", access, vidx));
+                            return Ok(());
+                        }
+                    }
+                }
+                let _ = span;
+                self.indent_line();
+                let tn = self.c_type_name(expected_ty);
+                writeln!(self.out, "{} {} = {};", tn, c_ident(name), access).unwrap();
+                self.declare_local(name, expected_ty)?;
+                Ok(())
+            }
+            Pattern::Variant {
+                name,
+                payload,
+                span,
+            } => {
+                let eidx = match expected_ty {
+                    CType::Enum(idx) => idx,
+                    _ => {
+                        return Err(unsupported(
+                            format!(
+                                "native codegen: variant pattern '{}' used where a non-enum value \
+                                 (type {:?}) is expected",
+                                name, expected_ty
+                            ),
+                            span,
+                        ));
+                    }
+                };
+                let (veidx, vidx) = *self
+                    .variant_index
+                    .get(name)
+                    .ok_or_else(|| codegen_error(format!("unknown enum variant '{name}'"), span))?;
+                if veidx != eidx {
+                    return Err(unsupported(
+                        format!(
+                            "native codegen: variant '{}' does not belong to the matched enum '{}'",
+                            name, self.enums[eidx].name
+                        ),
+                        span,
+                    ));
+                }
+                let variant = self.enums[eidx].variants[vidx].clone();
+                if payload.len() != variant.payload.len() {
+                    return Err(codegen_error(
+                        format!(
+                            "pattern for '{}' binds {} field(s) but the variant has {}",
+                            name,
+                            payload.len(),
+                            variant.payload.len()
+                        ),
+                        span,
+                    ));
+                }
+                guards.push(format!("{}.tag == {}", access, vidx));
+                for (i, sub) in payload.iter().enumerate() {
+                    let field_ty = variant.payload[i];
+                    let sub_access = format!("{}.as.{}.f{}", access, variant.name, i);
+                    self.emit_pattern_match(sub, field_ty, &sub_access, guards)?;
+                }
+                Ok(())
+            }
+            Pattern::Int(value, span) => {
+                if expected_ty != CType::Int {
+                    return Err(unsupported(
+                        format!("native codegen: integer pattern matched against {expected_ty:?}"),
+                        span,
+                    ));
+                }
+                guards.push(format!("{} == INT64_C({})", access, value));
+                Ok(())
+            }
+            Pattern::Bool(value, span) => {
+                if expected_ty != CType::Bool {
+                    return Err(unsupported(
+                        format!("native codegen: boolean pattern matched against {expected_ty:?}"),
+                        span,
+                    ));
+                }
+                guards.push(format!(
+                    "{} == {}",
+                    access,
+                    if *value { "true" } else { "false" }
+                ));
+                Ok(())
+            }
+            Pattern::Float(value, span) => {
+                if expected_ty != CType::Float {
+                    return Err(unsupported(
+                        format!("native codegen: float pattern matched against {expected_ty:?}"),
+                        span,
+                    ));
+                }
+                guards.push(format!("{} == {:?}", access, value));
+                Ok(())
+            }
+            Pattern::String(value, span) => {
+                if expected_ty != CType::String {
+                    return Err(unsupported(
+                        format!("native codegen: string pattern matched against {expected_ty:?}"),
+                        span,
+                    ));
+                }
+                guards.push(format!(
+                    "strcmp({}, \"{}\") == 0",
+                    access,
+                    c_escape_str(value)
+                ));
+                Ok(())
+            }
+            Pattern::Unit(span) => {
+                if expected_ty != CType::Unit {
+                    return Err(unsupported(
+                        format!("native codegen: unit pattern matched against {expected_ty:?}"),
+                        span,
+                    ));
+                }
+                Ok(())
+            }
+        }
     }
 
     fn emit_if(
@@ -813,7 +1493,8 @@ impl Codegen {
             // value-form if — synthesise a temp
             let temp = self.fresh_temp();
             self.indent_line();
-            writeln!(self.out, "{} {};", result_ty.c_repr(), temp).unwrap();
+            let rt = self.c_type_name(result_ty);
+            writeln!(self.out, "{} {};", rt, temp).unwrap();
             self.indent_line();
             writeln!(self.out, "if ({}) {{", cond_src).unwrap();
             self.indent += 1;
@@ -885,7 +1566,8 @@ impl Codegen {
         } else {
             let temp = self.fresh_temp();
             self.indent_line();
-            writeln!(self.out, "{} {};", tail_ty.c_repr(), temp).unwrap();
+            let tt = self.c_type_name(tail_ty);
+            writeln!(self.out, "{} {};", tt, temp).unwrap();
             self.indent_line();
             writeln!(self.out, "{{").unwrap();
             self.indent += 1;
@@ -986,6 +1668,25 @@ fn c_ident(name: &str) -> String {
     } else {
         name.to_string()
     }
+}
+
+/// Escape a string's *unescaped* runtime value (the lexer already decoded
+/// escapes) back into a valid C string-literal body.
+fn c_escape_str(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 2);
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\0' => out.push_str("\\0"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\x{:02x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 fn is_c_reserved(name: &str) -> bool {

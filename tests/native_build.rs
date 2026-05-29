@@ -221,20 +221,214 @@ fn native_float_comparison_returns_bool() {
 
 #[test]
 fn native_rejects_unsupported_constructs() {
-    // Strings aren't part of the Phase 1 codegen subset.
+    // Lists aren't part of the native codegen subset yet.
     let tmp = target_root();
     std::fs::create_dir_all(&tmp).unwrap();
     let stem = unique_name("reject");
     let source_path = tmp.join(format!("{stem}.mom"));
     let bin_path = tmp.join(&stem);
-    std::fs::write(&source_path, r#"fn main() { print("hi") }"#).unwrap();
+    std::fs::write(&source_path, r#"fn main() { let xs = [1, 2, 3] }"#).unwrap();
 
     let mut options = BuildOptions::new(source_path, bin_path);
     options.cache_dir = tmp.join(format!("{stem}-cache"));
     let err = build(&options).expect_err("expected a codegen diagnostic");
     let msg = format!("{err}");
     assert!(
-        msg.contains("String") || msg.contains("not yet"),
+        msg.contains("list") || msg.contains("List") || msg.contains("not yet"),
         "unexpected diagnostic: {msg}",
     );
+}
+
+#[test]
+fn native_enum_value_form_match() {
+    // Enum with a payload variant + nullary variant, matched in value form.
+    let out = compile_and_run(
+        r#"
+        enum Cmd {
+            Add(Int)
+            Stop
+        }
+
+        fn val(c: Cmd) -> Int {
+            match c {
+                Add(n) => n,
+                Stop   => 0,
+            }
+        }
+
+        fn main() {
+            print(val(Add(7)))
+            print(val(Stop))
+        }
+        "#,
+    );
+    assert_eq!(out, "7\n0\n");
+}
+
+#[test]
+fn native_enum_statement_form_match() {
+    // Statement-form match whose arm bodies are assignments.
+    let out = compile_and_run(
+        r#"
+        enum Msg {
+            Inc
+            Add(Int)
+        }
+
+        fn main() {
+            let mut count = 0
+            let m = Add(5)
+            match m {
+                Inc    => count = count + 1,
+                Add(n) => count = count + n,
+            }
+            print(count)
+        }
+        "#,
+    );
+    assert_eq!(out, "5\n");
+}
+
+#[test]
+fn native_enum_multi_field_variant() {
+    // A variant carrying more than one field.
+    let out = compile_and_run(
+        r#"
+        enum Pair {
+            Two(Int, Int)
+            Empty
+        }
+
+        fn sum(p: Pair) -> Int {
+            match p {
+                Two(a, b) => a + b,
+                Empty     => 0,
+            }
+        }
+
+        fn main() {
+            print(sum(Two(3, 4)))
+            print(sum(Empty))
+        }
+        "#,
+    );
+    assert_eq!(out, "7\n0\n");
+}
+
+#[test]
+fn native_string_literals_and_escapes() {
+    let out = compile_and_run(
+        r#"
+        fn echo(s: String) -> String { s }
+
+        fn main() {
+            print("Hello, world!")
+            print(echo("mom"))
+            print("a\tb\nc")
+        }
+        "#,
+    );
+    assert_eq!(out, "Hello, world!\nmom\na\tb\nc\n");
+}
+
+#[test]
+fn native_structs_fields_and_nesting() {
+    let out = compile_and_run(
+        r#"
+        struct Inner { v: Int }
+        struct Outer { label: String, inner: Inner }
+
+        fn dist2(ax: Int, ay: Int, bx: Int, by: Int) -> Int {
+            let dx = ax - bx
+            let dy = ay - by
+            dx * dx + dy * dy
+        }
+
+        fn main() {
+            let o = Outer { label: "hi", inner: Inner { v: 7 } }
+            print(o.label)
+            print(o.inner.v)
+            print(dist2(0, 0, 3, 4))
+        }
+        "#,
+    );
+    assert_eq!(out, "hi\n7\n25\n");
+}
+
+#[test]
+fn native_enum_with_struct_payload_and_nested_pattern() {
+    let out = compile_and_run(
+        r#"
+        struct Inner { v: Int }
+
+        enum Box {
+            Full(Inner)
+            Empty
+        }
+
+        fn unwrap(b: Box) -> Int {
+            match b {
+                Full(i) => i.v,
+                Empty   => -1,
+            }
+        }
+
+        fn main() {
+            print(unwrap(Full(Inner { v: 99 })))
+            print(unwrap(Empty))
+        }
+        "#,
+    );
+    assert_eq!(out, "99\n-1\n");
+}
+
+#[test]
+fn native_nested_and_literal_subpatterns() {
+    let out = compile_and_run(
+        r#"
+        enum Inner {
+            A(Int)
+            B
+        }
+
+        enum Outer {
+            Wrap(Inner)
+            Done
+        }
+
+        fn classify(o: Outer) -> Int {
+            match o {
+                Wrap(A(0)) => 100,
+                Wrap(A(n)) => n,
+                Wrap(B)    => -2,
+                Done       => -1,
+            }
+        }
+
+        fn main() {
+            print(classify(Wrap(A(0))))
+            print(classify(Wrap(A(7))))
+            print(classify(Wrap(B)))
+            print(classify(Done))
+        }
+        "#,
+    );
+    assert_eq!(out, "100\n7\n-2\n-1\n");
+}
+
+#[test]
+fn native_struct_field_assignment() {
+    let out = compile_and_run(
+        r#"
+        struct Counter { n: Int }
+
+        fn main() {
+            let mut c = Counter { n: 0 }
+            c.n = c.n + 5
+            c.n = c.n + 3
+            print(c.n)
+        }
+        "#,
+    );
+    assert_eq!(out, "8\n");
 }

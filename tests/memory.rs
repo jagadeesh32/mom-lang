@@ -184,3 +184,59 @@ fn function_with_reference_param_type_checks() {
     .expect("reference parameter types must check");
     assert!(report.functions.contains_key("len_str"));
 }
+
+#[test]
+fn list_literal_does_not_move_elements() {
+    // Regression: a value used inside a list literal and again afterward
+    // must not be reported as moved. List elements are treated as reads,
+    // consistent with struct-literal fields and call arguments.
+    check_source(
+        r#"
+        fn identity(value: Int) -> Int { value }
+
+        fn main() {
+            let a = 5
+            let pair = [a, identity(a)]
+            print(pair[0])
+            print(a)
+        }
+        "#,
+    )
+    .expect("reusing a list element afterward must not be a move error");
+}
+
+#[test]
+fn field_assignment_does_not_move_base() {
+    // Regression: assigning to a struct field must not move the whole
+    // binding, so it can be read/assigned again afterward.
+    check_source(
+        r#"
+        struct Counter { n: Int }
+
+        fn main() {
+            let mut c = Counter { n: 0 }
+            c.n = c.n + 5
+            c.n = c.n + 3
+            print(c.n)
+        }
+        "#,
+    )
+    .expect("field assignment must not trigger a move error");
+}
+
+#[test]
+fn rejects_use_after_move_into_binding() {
+    // Soundness guard: rebinding a non-Copy value still moves it.
+    expect_err(
+        r#"
+        struct Buf { n: Int }
+
+        fn main() {
+            let a = Buf { n: 1 }
+            let b = a
+            print(a.n)
+        }
+        "#,
+        "use of moved value",
+    );
+}
